@@ -5,6 +5,4 @@ dist/
 !.env.example
 *.log
 .DS_Store
-
-# Local tooling, planning docs, and helper files
 .claude/
