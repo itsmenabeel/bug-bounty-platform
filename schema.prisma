@@ -1,0 +1,223 @@
+// Bug Bounty & Disclosure Platform — Prisma schema
+// Postgres. All money is stored as integer minor units (cents) — never floats.
+// Records are soft-deleted via `deletedAt`; rows are not hard-deleted, so FK
+// referential actions are left at Prisma defaults.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+enum Role {
+  RESEARCHER
+  PROGRAM_OWNER
+  ADMIN
+}
+
+enum ProgramStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  CLOSED
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum ReportStatus {
+  NEW
+  TRIAGING
+  NEEDS_INFO
+  ACCEPTED
+  DUPLICATE
+  REJECTED
+  REWARDED
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum PayoutStatus {
+  PENDING
+  PAID
+}
+
+// ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+
+model User {
+  id            String    @id @default(uuid())
+  email         String    @unique
+  passwordHash  String? // null for Google-only accounts
+  googleId      String?   @unique // GCP social login
+  name          String
+  role          Role      @default(RESEARCHER)
+  reputation    Int       @default(0) // researcher score
+  walletBalance Int       @default(0) // withdrawable payout ledger (cents)
+  isActive      Boolean   @default(true)
+  deletedAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  programs  Program[] // as owner
+  reports   Report[] // as researcher
+  payouts   Payout[] // as researcher
+  comments  ReportComment[] // as author
+  auditLogs AuditLog[] // as actor
+
+  @@index([role])
+}
+
+// ---------------------------------------------------------------------------
+// Programs & reward tiers
+// ---------------------------------------------------------------------------
+
+model Program {
+  id          String        @id @default(uuid())
+  ownerId     String
+  title       String
+  description String
+  scope       Json // in-scope assets / rules
+  status      ProgramStatus @default(DRAFT)
+  poolBalance Int           @default(0) // funded, not-yet-paid-out (cents)
+  deletedAt   DateTime?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  owner       User         @relation(fields: [ownerId], references: [id])
+  rewardTiers RewardTier[]
+  reports     Report[]
+  payments    Payment[]
+  payouts     Payout[]
+
+  @@index([ownerId, status])
+  @@index([status])
+}
+
+model RewardTier {
+  id        String   @id @default(uuid())
+  programId String
+  severity  Severity
+  amount    Int // cents
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  program Program @relation(fields: [programId], references: [id])
+
+  @@unique([programId, severity]) // one amount per severity per program
+}
+
+// ---------------------------------------------------------------------------
+// Reports (vulnerability submissions)
+// ---------------------------------------------------------------------------
+
+model Report {
+  id            String       @id @default(uuid())
+  programId     String
+  researcherId  String
+  title         String
+  description   String
+  severity      Severity? // set/confirmed at triage
+  status        ReportStatus @default(NEW)
+  duplicateOfId String? // self-relation when marked DUPLICATE
+  deletedAt     DateTime?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  program     Program         @relation(fields: [programId], references: [id])
+  researcher  User            @relation(fields: [researcherId], references: [id])
+  duplicateOf Report?         @relation("ReportDuplicates", fields: [duplicateOfId], references: [id])
+  dupes       Report[]        @relation("ReportDuplicates")
+  payout      Payout? // 1:1, set once rewarded
+  comments    ReportComment[]
+
+  @@index([programId, status])
+  @@index([researcherId])
+  @@index([status])
+}
+
+model ReportComment {
+  id        String   @id @default(uuid())
+  reportId  String
+  authorId  String
+  body      String
+  createdAt DateTime @default(now())
+
+  report Report @relation(fields: [reportId], references: [id])
+  author User   @relation(fields: [authorId], references: [id])
+
+  @@index([reportId])
+}
+
+// ---------------------------------------------------------------------------
+// Payments (money IN — real Stripe) and Payouts (money OUT — internal ledger)
+// ---------------------------------------------------------------------------
+
+model Payment {
+  id              String        @id @default(uuid())
+  programId       String
+  amount          Int // cents
+  currency        String        @default("usd")
+  provider        String        @default("stripe")
+  stripeSessionId String        @unique // idempotency key for webhook delivery
+  status          PaymentStatus @default(PENDING)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  program Program @relation(fields: [programId], references: [id])
+
+  @@index([programId, status])
+}
+
+model Payout {
+  id           String       @id @default(uuid())
+  reportId     String       @unique // one payout per report — double-payout guard
+  researcherId String
+  programId    String
+  amount       Int // cents
+  status       PayoutStatus @default(PAID)
+  createdAt    DateTime     @default(now())
+
+  report     Report  @relation(fields: [reportId], references: [id])
+  researcher User    @relation(fields: [researcherId], references: [id])
+  program    Program @relation(fields: [programId], references: [id])
+
+  @@index([researcherId])
+  @@index([programId])
+}
+
+// ---------------------------------------------------------------------------
+// Audit log — one row per status / role / money change, written in-transaction
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String
+  action     String // e.g. "REPORT_STATUS_CHANGE", "PAYOUT_ISSUED", "ROLE_UPDATED"
+  entityType String // e.g. "Report", "User", "Program"
+  entityId   String
+  metadata   Json? // { from, to, amount, ... }
+  createdAt  DateTime @default(now())
+
+  actor User @relation(fields: [actorId], references: [id])
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+}

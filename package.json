@@ -1,0 +1,25 @@
+{
+  "name": "bug-bounty-platform",
+  "version": "0.1.0",
+  "description": "Backend API for a bug bounty and vulnerability disclosure platform. Companies fund programs, researchers submit reports, admins triage and reward them.",
+  "main": "dist/server.js",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/node": "^26.6.2",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}
