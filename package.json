@@ -28,6 +28,7 @@
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
     "ioredis": "^6.0.0",
+    "jsonwebtoken": "^9.0.3",
     "stripe": "^22.6.2",
     "zod": "^4.6.5"
   },
@@ -35,6 +36,7 @@
     "@biomejs/biome": "2.5.14",
     "@types/bcrypt": "^6.0.0",
     "@types/express": "^5.0.6",
+    "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.6.2",
     "prisma": "^6.19.3",
     "tsx": "^4.23.13",
