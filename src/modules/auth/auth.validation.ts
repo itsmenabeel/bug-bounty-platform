@@ -27,5 +27,18 @@ export const loginSchema = z.object({
   }),
 });
 
+export const refreshSchema = z.object({
+  body: z.object({ refreshToken: z.string().min(1, "Refresh token is required") }),
+});
+
+export const googleLoginSchema = z.object({
+  body: z.object({
+    idToken: z.string().min(1, "Google ID token is required"),
+    // Applies only when the Google account creates a new user.
+    role: z.enum([ROLES.RESEARCHER, ROLES.PROGRAM_OWNER]).default(ROLES.RESEARCHER),
+  }),
+});
+
+export type GoogleLoginInput = z.infer<typeof googleLoginSchema>["body"];
 export type RegisterInput = z.infer<typeof registerSchema>["body"];
 export type LoginInput = z.infer<typeof loginSchema>["body"];
