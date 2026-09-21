@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PROGRAM_STATUS } from "../../shared/constants/programStatus";
+import { paginationQuery } from "../../shared/utils/pagination";
 
 const scope = z.object({
   inScope: z.array(z.string().trim().min(1).max(200)).min(1, "At least one in-scope asset"),
@@ -49,6 +50,18 @@ export const updateStatusSchema = z.object({
   }),
 });
 
+export const listProgramsSchema = z.object({
+  query: paginationQuery(["createdAt", "title", "poolBalance"], "createdAt").extend({
+    search: z.string().trim().min(1).max(100).optional(),
+    status: z.enum(PROGRAM_STATUS).optional(),
+    mine: z
+      .enum(["true", "false"])
+      .transform((value) => value === "true")
+      .default(false),
+  }),
+});
+
+export type ListProgramsQuery = z.infer<typeof listProgramsSchema>["query"];
 export type SetRewardTiersInput = z.infer<typeof setRewardTiersSchema>["body"];
 export type UpdateStatusInput = z.infer<typeof updateStatusSchema>["body"];
 export type CreateProgramInput = z.infer<typeof createProgramSchema>["body"];

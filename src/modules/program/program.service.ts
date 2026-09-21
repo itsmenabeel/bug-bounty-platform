@@ -1,12 +1,14 @@
-import type { Role } from "@prisma/client";
+import type { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { PROGRAM_TRANSITIONS } from "../../shared/constants/programStatus";
 import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
 import { writeAudit } from "../../shared/utils/audit";
+import { applyPagination, buildMeta } from "../../shared/utils/pagination";
 import { programSelect } from "./program.select";
 import type {
   CreateProgramInput,
+  ListProgramsQuery,
   SetRewardTiersInput,
   UpdateProgramInput,
   UpdateStatusInput,
@@ -21,6 +23,33 @@ export function createProgram(ownerId: string, input: CreateProgramInput) {
     data: { ownerId, ...input },
     select: programSelect,
   });
+}
+
+// Owners see their own programs with ?mine=true, admins see all, everyone else sees ACTIVE only.
+export async function listPrograms(actor: Actor, query: ListProgramsQuery) {
+  if (query.mine && actor.role !== ROLES.PROGRAM_OWNER) {
+    throw new AppError(403, "Only program owners can list their own programs");
+  }
+
+  const and: Prisma.ProgramWhereInput[] = [{ deletedAt: null }];
+  if (query.mine) and.push({ ownerId: actor.id });
+  else if (actor.role !== ROLES.ADMIN) and.push({ status: "ACTIVE" });
+  if (query.status) and.push({ status: query.status });
+  if (query.search) {
+    and.push({
+      OR: [
+        { title: { contains: query.search, mode: "insensitive" } },
+        { description: { contains: query.search, mode: "insensitive" } },
+      ],
+    });
+  }
+  const where = { AND: and };
+
+  const [total, items] = await prisma.$transaction([
+    prisma.program.count({ where }),
+    prisma.program.findMany({ where, select: programSelect, ...applyPagination(query) }),
+  ]);
+  return { items, meta: buildMeta(query.page, query.limit, total) };
 }
 
 // Non-active programs are visible only to their owner and admins; others get a 404.

@@ -7,6 +7,7 @@ import { idParamSchema } from "../../shared/utils/commonSchemas";
 import * as programController from "./program.controller";
 import {
   createProgramSchema,
+  listProgramsSchema,
   setRewardTiersSchema,
   updateProgramSchema,
   updateStatusSchema,
@@ -22,6 +23,7 @@ programRoutes.post(
   validate(createProgramSchema),
   programController.create,
 );
+programRoutes.get("/", validate(listProgramsSchema), programController.list);
 programRoutes.get("/:id", validate(idParamSchema), programController.getOne);
 programRoutes.patch(
   "/:id",

@@ -2,10 +2,19 @@ import { catchAsync } from "../../shared/utils/catchAsync";
 import { requireUser } from "../../shared/utils/requireUser";
 import { sendResponse } from "../../shared/utils/sendResponse";
 import * as programService from "./program.service";
+import type { ListProgramsQuery } from "./program.validation";
 
 export const create = catchAsync(async (req, res) => {
   const data = await programService.createProgram(requireUser(req).id, req.body);
   sendResponse(res, { statusCode: 201, message: "Program created", data });
+});
+
+export const list = catchAsync(async (req, res) => {
+  const { items, meta } = await programService.listPrograms(
+    requireUser(req),
+    req.query as unknown as ListProgramsQuery,
+  );
+  sendResponse(res, { message: "Programs retrieved", data: items, meta });
 });
 
 export const getOne = catchAsync(async (req, res) => {
