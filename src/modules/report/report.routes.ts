@@ -4,6 +4,7 @@ import { authorize } from "../../middlewares/authorize";
 import { validate } from "../../middlewares/validate";
 import { ROLES } from "../../shared/constants/roles";
 import { idParamSchema } from "../../shared/utils/commonSchemas";
+import * as payoutController from "../payout/payout.controller";
 import * as commentController from "./comment.controller";
 import { createCommentSchema, listCommentsSchema } from "./comment.validation";
 import * as reportController from "./report.controller";
@@ -46,3 +47,9 @@ reportRoutes.patch(
 );
 reportRoutes.post("/:id/comments", validate(createCommentSchema), commentController.create);
 reportRoutes.get("/:id/comments", validate(listCommentsSchema), commentController.list);
+reportRoutes.post(
+  "/:id/reward",
+  authorize(ROLES.ADMIN),
+  validate(idParamSchema),
+  payoutController.reward,
+);
