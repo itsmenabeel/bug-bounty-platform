@@ -1,9 +1,16 @@
 import type { Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
+import { PROGRAM_TRANSITIONS } from "../../shared/constants/programStatus";
 import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
+import { writeAudit } from "../../shared/utils/audit";
 import { programSelect } from "./program.select";
-import type { CreateProgramInput, UpdateProgramInput } from "./program.validation";
+import type {
+  CreateProgramInput,
+  SetRewardTiersInput,
+  UpdateProgramInput,
+  UpdateStatusInput,
+} from "./program.validation";
 
 type Actor = { id: string; role: Role };
 
@@ -41,6 +48,61 @@ export async function updateProgram(id: string, ownerId: string, input: UpdatePr
   if (program.status === "CLOSED") throw new AppError(409, "A closed program cannot be edited");
 
   return prisma.program.update({ where: { id }, data: input, select: programSelect });
+}
+
+export async function setRewardTiers(id: string, actor: Actor, input: SetRewardTiersInput) {
+  const program = await getOwnedProgram(id, actor.id);
+  if (program.status === "CLOSED") throw new AppError(409, "A closed program cannot be edited");
+
+  await prisma.$transaction(async (tx) => {
+    for (const { severity, amount } of input.tiers) {
+      await tx.rewardTier.upsert({
+        where: { programId_severity: { programId: id, severity } },
+        update: { amount },
+        create: { programId: id, severity, amount },
+      });
+    }
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "REWARD_TIERS_UPDATED",
+      entityType: "Program",
+      entityId: id,
+      metadata: { tiers: input.tiers },
+    });
+  });
+
+  return prisma.program.findUniqueOrThrow({ where: { id }, select: programSelect });
+}
+
+export async function changeStatus(id: string, actor: Actor, input: UpdateStatusInput) {
+  const program = await getOwnedProgram(id, actor.id);
+  const next = input.status;
+
+  if (!PROGRAM_TRANSITIONS[program.status].includes(next)) {
+    throw new AppError(409, `Cannot change status from ${program.status} to ${next}`);
+  }
+  if (next === "ACTIVE" && (await prisma.rewardTier.count({ where: { programId: id } })) === 0) {
+    throw new AppError(409, "Set reward tiers before activating a program");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    // Matching on the current status makes a concurrent change fail instead of overwrite.
+    const updated = await tx.program.updateMany({
+      where: { id, status: program.status, deletedAt: null },
+      data: { status: next },
+    });
+    if (updated.count === 0) throw new AppError(409, "Program status changed, please retry");
+
+    await writeAudit(tx, {
+      actorId: actor.id,
+      action: "PROGRAM_STATUS_CHANGE",
+      entityType: "Program",
+      entityId: id,
+      metadata: { from: program.status, to: next },
+    });
+  });
+
+  return prisma.program.findUniqueOrThrow({ where: { id }, select: programSelect });
 }
 
 export async function deleteProgram(id: string, ownerId: string) {

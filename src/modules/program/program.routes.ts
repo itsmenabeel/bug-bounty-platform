@@ -5,7 +5,12 @@ import { validate } from "../../middlewares/validate";
 import { ROLES } from "../../shared/constants/roles";
 import { idParamSchema } from "../../shared/utils/commonSchemas";
 import * as programController from "./program.controller";
-import { createProgramSchema, updateProgramSchema } from "./program.validation";
+import {
+  createProgramSchema,
+  setRewardTiersSchema,
+  updateProgramSchema,
+  updateStatusSchema,
+} from "./program.validation";
 
 export const programRoutes = Router();
 
@@ -23,6 +28,18 @@ programRoutes.patch(
   authorize(ROLES.PROGRAM_OWNER),
   validate(updateProgramSchema),
   programController.update,
+);
+programRoutes.put(
+  "/:id/reward-tiers",
+  authorize(ROLES.PROGRAM_OWNER),
+  validate(setRewardTiersSchema),
+  programController.setRewardTiers,
+);
+programRoutes.patch(
+  "/:id/status",
+  authorize(ROLES.PROGRAM_OWNER),
+  validate(updateStatusSchema),
+  programController.changeStatus,
 );
 programRoutes.delete(
   "/:id",

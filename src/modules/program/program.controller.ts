@@ -22,6 +22,20 @@ export const update = catchAsync(async (req, res) => {
   sendResponse(res, { message: "Program updated", data });
 });
 
+export const setRewardTiers = catchAsync(async (req, res) => {
+  const data = await programService.setRewardTiers(
+    String(req.params.id),
+    requireUser(req),
+    req.body,
+  );
+  sendResponse(res, { message: "Reward tiers saved", data });
+});
+
+export const changeStatus = catchAsync(async (req, res) => {
+  const data = await programService.changeStatus(String(req.params.id), requireUser(req), req.body);
+  sendResponse(res, { message: "Program status updated", data });
+});
+
 export const remove = catchAsync(async (req, res) => {
   await programService.deleteProgram(String(req.params.id), requireUser(req).id);
   sendResponse(res, { message: "Program deleted" });
