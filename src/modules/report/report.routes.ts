@@ -4,6 +4,8 @@ import { authorize } from "../../middlewares/authorize";
 import { validate } from "../../middlewares/validate";
 import { ROLES } from "../../shared/constants/roles";
 import { idParamSchema } from "../../shared/utils/commonSchemas";
+import * as commentController from "./comment.controller";
+import { createCommentSchema, listCommentsSchema } from "./comment.validation";
 import * as reportController from "./report.controller";
 import {
   createReportSchema,
@@ -42,3 +44,5 @@ reportRoutes.patch(
   validate(triageReportSchema),
   reportController.triage,
 );
+reportRoutes.post("/:id/comments", validate(createCommentSchema), commentController.create);
+reportRoutes.get("/:id/comments", validate(listCommentsSchema), commentController.list);

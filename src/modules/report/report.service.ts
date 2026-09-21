@@ -2,6 +2,7 @@ import type { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
 import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
+import { writeAudit } from "../../shared/utils/audit";
 import { applyPagination, buildMeta } from "../../shared/utils/pagination";
 import { reportSelect } from "./report.select";
 import { assertTransition, transitionReport } from "./report.transition";
@@ -109,11 +110,20 @@ export async function updateReport(id: string, researcherId: string, input: Upda
 export async function deleteReport(id: string, researcherId: string) {
   await assertOwnEditable(id, researcherId);
 
-  const deleted = await prisma.report.updateMany({
-    where: editableWhere(id, researcherId),
-    data: { deletedAt: new Date() },
+  await prisma.$transaction(async (tx) => {
+    const deleted = await tx.report.updateMany({
+      where: editableWhere(id, researcherId),
+      data: { deletedAt: new Date() },
+    });
+    if (deleted.count === 0) throw new AppError(409, "Report status changed, please retry");
+
+    await writeAudit(tx, {
+      actorId: researcherId,
+      action: "REPORT_DELETED",
+      entityType: "Report",
+      entityId: id,
+    });
   });
-  if (deleted.count === 0) throw new AppError(409, "Report status changed, please retry");
 }
 
 export async function triageReport(id: string, actor: Actor, input: TriageReportInput) {

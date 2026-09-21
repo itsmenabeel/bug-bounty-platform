@@ -6,12 +6,13 @@ import type { PaginationMeta } from "./sendResponse";
 export function paginationQuery<const F extends readonly [string, ...string[]]>(
   sortFields: F,
   defaultSort: F[number],
+  defaultOrder: "asc" | "desc" = "desc",
 ) {
   return z.object({
     page: z.coerce.number().int().min(1).default(DEFAULT_PAGE),
     limit: z.coerce.number().int().min(1).max(MAX_LIMIT).default(DEFAULT_LIMIT),
     sortBy: z.enum(sortFields).default(defaultSort),
-    order: z.enum(["asc", "desc"]).default("desc"),
+    order: z.enum(["asc", "desc"]).default(defaultOrder),
   });
 }
 

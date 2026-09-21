@@ -145,5 +145,13 @@ export async function deleteProgram(id: string, ownerId: string) {
   });
   if (openReports > 0) throw new AppError(409, "A program with open reports cannot be deleted");
 
-  await prisma.program.update({ where: { id }, data: { deletedAt: new Date() } });
+  await prisma.$transaction(async (tx) => {
+    await tx.program.update({ where: { id }, data: { deletedAt: new Date() } });
+    await writeAudit(tx, {
+      actorId: ownerId,
+      action: "PROGRAM_DELETED",
+      entityType: "Program",
+      entityId: id,
+    });
+  });
 }
