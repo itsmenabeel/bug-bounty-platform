@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { authLimiter } from "./middlewares/rateLimit";
 import { adminRoutes } from "./modules/admin/admin.routes";
 import { authRoutes } from "./modules/auth/auth.routes";
 import { paymentRoutes } from "./modules/payment/payment.routes";
@@ -9,7 +10,7 @@ import { userRoutes } from "./modules/user/user.routes";
 
 export const apiRouter = Router();
 
-apiRouter.use("/auth", authRoutes);
+apiRouter.use("/auth", authLimiter, authRoutes);
 apiRouter.use("/users", userRoutes);
 apiRouter.use("/programs", programRoutes);
 apiRouter.use("/reports", reportRoutes);

@@ -17,6 +17,10 @@ const envSchema = z.object({
   JWT_REFRESH_SECRET: z.string().min(32),
   JWT_ACCESS_TTL: z.string().default("15m"),
   JWT_REFRESH_TTL: z.string().default("7d"),
+  RATE_LIMIT_ENABLED: z
+    .enum(["true", "false"])
+    .default("true")
+    .transform((value) => value === "true"),
   BCRYPT_ROUNDS: z.coerce.number().int().min(10).default(10),
   GOOGLE_CLIENT_ID: z.string().optional(),
   STRIPE_SECRET_KEY: z.string().min(1),

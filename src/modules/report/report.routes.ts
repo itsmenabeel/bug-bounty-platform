@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { authenticate } from "../../middlewares/authenticate";
 import { authorize } from "../../middlewares/authorize";
+import { reportSubmitLimiter } from "../../middlewares/rateLimit";
 import { validate } from "../../middlewares/validate";
 import { ROLES } from "../../shared/constants/roles";
 import { idParamSchema } from "../../shared/utils/commonSchemas";
@@ -22,6 +23,7 @@ reportRoutes.use(authenticate);
 reportRoutes.post(
   "/",
   authorize(ROLES.RESEARCHER),
+  reportSubmitLimiter,
   validate(createReportSchema),
   reportController.create,
 );

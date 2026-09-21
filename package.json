@@ -25,17 +25,22 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
     "dotenv": "^18.0.1",
     "express": "^5.2.1",
+    "express-rate-limit": "^8.7.0",
     "google-auth-library": "^11.1.0",
+    "helmet": "^8.3.0",
     "ioredis": "^6.0.0",
     "jsonwebtoken": "^9.0.3",
+    "rate-limit-redis": "^6.0.1",
     "stripe": "^22.6.2",
     "zod": "^4.6.5"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.14",
     "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.6.2",
