@@ -1,9 +1,11 @@
 import { Prisma, type Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
+import { PROGRAMS_CACHE_NAMESPACE } from "../../shared/constants/cache";
 import { REPUTATION_WEIGHT } from "../../shared/constants/reputation";
 import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
 import { writeAudit } from "../../shared/utils/audit";
+import { invalidate } from "../../shared/utils/cache";
 import { applyPagination, buildMeta } from "../../shared/utils/pagination";
 import { assertTransition, transitionReport } from "../report/report.transition";
 import type { ListPayoutsQuery } from "./payout.validation";
@@ -40,7 +42,7 @@ export async function rewardReport(reportId: string, actor: Actor) {
   const amount = tier.amount;
 
   try {
-    return await prisma.$transaction(
+    const result = await prisma.$transaction(
       async (tx) => {
         const debited = await tx.program.updateMany({
           where: { id: programId, deletedAt: null, poolBalance: { gte: amount } },
@@ -86,6 +88,9 @@ export async function rewardReport(reportId: string, actor: Actor) {
       },
       { maxWait: 5000, timeout: 15000 },
     );
+    // The listing shows poolBalance, so a payout makes cached lists stale.
+    await invalidate(PROGRAMS_CACHE_NAMESPACE);
+    return result;
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       throw alreadyRewarded();

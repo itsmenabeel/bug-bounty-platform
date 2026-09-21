@@ -1,9 +1,11 @@
 import type { Prisma, Role } from "@prisma/client";
 import { prisma } from "../../config/prisma";
+import { PROGRAMS_CACHE_NAMESPACE, PROGRAMS_LIST_TTL_SECONDS } from "../../shared/constants/cache";
 import { PROGRAM_TRANSITIONS } from "../../shared/constants/programStatus";
 import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
 import { writeAudit } from "../../shared/utils/audit";
+import { cached, invalidate } from "../../shared/utils/cache";
 import { applyPagination, buildMeta } from "../../shared/utils/pagination";
 import { programSelect } from "./program.select";
 import type {
@@ -18,11 +20,13 @@ type Actor = { id: string; role: Role };
 
 const OPEN_REPORT_STATUSES = ["NEW", "TRIAGING", "NEEDS_INFO", "ACCEPTED"] as const;
 
-export function createProgram(ownerId: string, input: CreateProgramInput) {
-  return prisma.program.create({
+export async function createProgram(ownerId: string, input: CreateProgramInput) {
+  const program = await prisma.program.create({
     data: { ownerId, ...input },
     select: programSelect,
   });
+  await invalidate(PROGRAMS_CACHE_NAMESPACE);
+  return program;
 }
 
 // Owners see their own programs with ?mine=true, admins see all, everyone else sees ACTIVE only.
@@ -31,6 +35,19 @@ export async function listPrograms(actor: Actor, query: ListProgramsQuery) {
     throw new AppError(403, "Only program owners can list their own programs");
   }
 
+  // The scope keeps each audience's results apart, so an admin's cached list
+  // (which includes drafts) can never be served to a researcher.
+  const scope = query.mine ? `owner:${actor.id}` : actor.role === ROLES.ADMIN ? "admin" : "public";
+  const { value, status } = await cached(
+    PROGRAMS_CACHE_NAMESPACE,
+    { scope, query },
+    PROGRAMS_LIST_TTL_SECONDS,
+    () => queryPrograms(actor, query),
+  );
+  return { ...value, cache: status };
+}
+
+async function queryPrograms(actor: Actor, query: ListProgramsQuery) {
   const and: Prisma.ProgramWhereInput[] = [{ deletedAt: null }];
   if (query.mine) and.push({ ownerId: actor.id });
   else if (actor.role !== ROLES.ADMIN) and.push({ status: "ACTIVE" });
@@ -76,7 +93,13 @@ export async function updateProgram(id: string, ownerId: string, input: UpdatePr
   const program = await getOwnedProgram(id, ownerId);
   if (program.status === "CLOSED") throw new AppError(409, "A closed program cannot be edited");
 
-  return prisma.program.update({ where: { id }, data: input, select: programSelect });
+  const updated = await prisma.program.update({
+    where: { id },
+    data: input,
+    select: programSelect,
+  });
+  await invalidate(PROGRAMS_CACHE_NAMESPACE);
+  return updated;
 }
 
 export async function setRewardTiers(id: string, actor: Actor, input: SetRewardTiersInput) {
@@ -100,6 +123,7 @@ export async function setRewardTiers(id: string, actor: Actor, input: SetRewardT
     });
   });
 
+  await invalidate(PROGRAMS_CACHE_NAMESPACE);
   return prisma.program.findUniqueOrThrow({ where: { id }, select: programSelect });
 }
 
@@ -131,6 +155,7 @@ export async function changeStatus(id: string, actor: Actor, input: UpdateStatus
     });
   });
 
+  await invalidate(PROGRAMS_CACHE_NAMESPACE);
   return prisma.program.findUniqueOrThrow({ where: { id }, select: programSelect });
 }
 
@@ -154,4 +179,5 @@ export async function deleteProgram(id: string, ownerId: string) {
       entityId: id,
     });
   });
+  await invalidate(PROGRAMS_CACHE_NAMESPACE);
 }

@@ -10,10 +10,11 @@ export const create = catchAsync(async (req, res) => {
 });
 
 export const list = catchAsync(async (req, res) => {
-  const { items, meta } = await programService.listPrograms(
+  const { items, meta, cache } = await programService.listPrograms(
     requireUser(req),
     req.query as unknown as ListProgramsQuery,
   );
+  res.setHeader("X-Cache", cache);
   sendResponse(res, { message: "Programs retrieved", data: items, meta });
 });
 

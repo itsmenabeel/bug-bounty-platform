@@ -3,10 +3,12 @@ import type Stripe from "stripe";
 import { env } from "../../config/env";
 import { prisma } from "../../config/prisma";
 import { stripe } from "../../config/stripe";
+import { PROGRAMS_CACHE_NAMESPACE } from "../../shared/constants/cache";
 import { PAYMENT_CURRENCY } from "../../shared/constants/payment";
 import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
 import { writeAudit } from "../../shared/utils/audit";
+import { invalidate } from "../../shared/utils/cache";
 import { applyPagination, buildMeta } from "../../shared/utils/pagination";
 import type { CreateCheckoutInput, ListPaymentsQuery } from "./payment.validation";
 
@@ -128,12 +130,12 @@ async function creditPool(session: Stripe.Checkout.Session) {
     return;
   }
 
-  await prisma.$transaction(async (tx) => {
+  const credited = await prisma.$transaction(async (tx) => {
     const claimed = await tx.payment.updateMany({
       where: { id: payment.id, status: "PENDING" },
       data: { status: "SUCCEEDED" },
     });
-    if (claimed.count === 0) return;
+    if (claimed.count === 0) return false;
 
     await tx.program.update({
       where: { id: payment.programId },
@@ -146,7 +148,11 @@ async function creditPool(session: Stripe.Checkout.Session) {
       entityId: payment.programId,
       metadata: { paymentId: payment.id, amount: payment.amount, stripeSessionId: session.id },
     });
+    return true;
   });
+
+  // The listing shows poolBalance, so funding makes cached lists stale.
+  if (credited) await invalidate(PROGRAMS_CACHE_NAMESPACE);
 }
 
 export async function listPayments(actor: Actor, query: ListPaymentsQuery) {
