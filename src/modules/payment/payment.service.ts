@@ -1,12 +1,33 @@
-import type { PaymentStatus } from "@prisma/client";
+import type { PaymentStatus, Prisma, Role } from "@prisma/client";
 import type Stripe from "stripe";
 import { env } from "../../config/env";
 import { prisma } from "../../config/prisma";
 import { stripe } from "../../config/stripe";
 import { PAYMENT_CURRENCY } from "../../shared/constants/payment";
+import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
 import { writeAudit } from "../../shared/utils/audit";
-import type { CreateCheckoutInput } from "./payment.validation";
+import { applyPagination, buildMeta } from "../../shared/utils/pagination";
+import type { CreateCheckoutInput, ListPaymentsQuery } from "./payment.validation";
+
+type Actor = { id: string; role: Role };
+
+const paymentSelect = {
+  id: true,
+  programId: true,
+  amount: true,
+  currency: true,
+  provider: true,
+  status: true,
+  stripeSessionId: true,
+  createdAt: true,
+  updatedAt: true,
+  program: { select: { id: true, title: true } },
+} as const;
+
+// Owners see payments on their programs, admins see all.
+const visibleTo = (actor: Actor): Prisma.PaymentWhereInput =>
+  actor.role === ROLES.ADMIN ? {} : { program: { ownerId: actor.id } };
 
 const withSessionId = (url: string) =>
   `${url}${url.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`;
@@ -126,4 +147,50 @@ async function creditPool(session: Stripe.Checkout.Session) {
       metadata: { paymentId: payment.id, amount: payment.amount, stripeSessionId: session.id },
     });
   });
+}
+
+export async function listPayments(actor: Actor, query: ListPaymentsQuery) {
+  const where: Prisma.PaymentWhereInput = {
+    ...visibleTo(actor),
+    ...(query.status && { status: query.status }),
+    ...(query.programId && { programId: query.programId }),
+    ...(query.sessionId && { stripeSessionId: query.sessionId }),
+  };
+
+  const [total, items] = await prisma.$transaction([
+    prisma.payment.count({ where }),
+    prisma.payment.findMany({ where, select: paymentSelect, ...applyPagination(query) }),
+  ]);
+  return { items, meta: buildMeta(query.page, query.limit, total) };
+}
+
+export async function getPayment(id: string, actor: Actor) {
+  const payment = await prisma.payment.findFirst({
+    where: { id, ...visibleTo(actor) },
+    select: paymentSelect,
+  });
+  if (!payment) throw new AppError(404, "Payment not found");
+  return payment;
+}
+
+/**
+ * Asks Stripe for the session state and applies it. Covers a webhook that never
+ * arrived, and shares the webhook's idempotent handlers so both paths agree.
+ */
+export async function verifyPayment(id: string, actor: Actor) {
+  const payment = await getPayment(id, actor);
+  if (payment.status !== "PENDING") return payment;
+
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.retrieve(payment.stripeSessionId);
+  } catch (error) {
+    console.error("Stripe session lookup failed:", error);
+    throw new AppError(502, "Payment provider is unavailable");
+  }
+
+  if (session.payment_status === "paid") await creditPool(session);
+  else if (session.status === "expired") await closePending(session.id, "CANCELLED");
+
+  return getPayment(id, actor);
 }
