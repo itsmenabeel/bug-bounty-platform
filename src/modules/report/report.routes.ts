@@ -5,7 +5,12 @@ import { validate } from "../../middlewares/validate";
 import { ROLES } from "../../shared/constants/roles";
 import { idParamSchema } from "../../shared/utils/commonSchemas";
 import * as reportController from "./report.controller";
-import { createReportSchema, listReportsSchema, updateReportSchema } from "./report.validation";
+import {
+  createReportSchema,
+  listReportsSchema,
+  triageReportSchema,
+  updateReportSchema,
+} from "./report.validation";
 
 export const reportRoutes = Router();
 
@@ -30,4 +35,10 @@ reportRoutes.delete(
   authorize(ROLES.RESEARCHER),
   validate(idParamSchema),
   reportController.remove,
+);
+reportRoutes.patch(
+  "/:id/status",
+  authorize(ROLES.ADMIN),
+  validate(triageReportSchema),
+  reportController.triage,
 );

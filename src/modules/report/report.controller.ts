@@ -35,3 +35,8 @@ export const remove = catchAsync(async (req, res) => {
   await reportService.deleteReport(String(req.params.id), requireUser(req).id);
   sendResponse(res, { message: "Report deleted" });
 });
+
+export const triage = catchAsync(async (req, res) => {
+  const data = await reportService.triageReport(String(req.params.id), requireUser(req), req.body);
+  sendResponse(res, { message: "Report status updated", data });
+});

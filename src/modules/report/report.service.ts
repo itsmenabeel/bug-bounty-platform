@@ -4,7 +4,13 @@ import { ROLES } from "../../shared/constants/roles";
 import { AppError } from "../../shared/errors/AppError";
 import { applyPagination, buildMeta } from "../../shared/utils/pagination";
 import { reportSelect } from "./report.select";
-import type { CreateReportInput, ListReportsQuery, UpdateReportInput } from "./report.validation";
+import { assertTransition, transitionReport } from "./report.transition";
+import type {
+  CreateReportInput,
+  ListReportsQuery,
+  TriageReportInput,
+  UpdateReportInput,
+} from "./report.validation";
 
 type Actor = { id: string; role: Role };
 
@@ -64,6 +70,7 @@ async function assertOwnEditable(id: string, researcherId: string) {
   if (!EDITABLE_STATUSES.some((status) => status === report.status)) {
     throw new AppError(409, `A report in ${report.status} status cannot be changed`);
   }
+  return report.status;
 }
 
 // The status filter keeps a concurrent triage change from being overwritten.
@@ -75,13 +82,26 @@ const editableWhere = (id: string, researcherId: string): Prisma.ReportWhereInpu
 });
 
 export async function updateReport(id: string, researcherId: string, input: UpdateReportInput) {
-  await assertOwnEditable(id, researcherId);
+  const status = await assertOwnEditable(id, researcherId);
 
-  const updated = await prisma.report.updateMany({
-    where: editableWhere(id, researcherId),
-    data: input,
+  await prisma.$transaction(async (tx) => {
+    const updated = await tx.report.updateMany({
+      where: editableWhere(id, researcherId),
+      data: input,
+    });
+    if (updated.count === 0) throw new AppError(409, "Report status changed, please retry");
+
+    // Answering an information request puts the report back in the triage queue.
+    if (status === "NEEDS_INFO") {
+      await transitionReport(tx, {
+        reportId: id,
+        actorId: researcherId,
+        from: "NEEDS_INFO",
+        to: "TRIAGING",
+        metadata: { reason: "researcher_update" },
+      });
+    }
   });
-  if (updated.count === 0) throw new AppError(409, "Report status changed, please retry");
 
   return getReport(id, { id: researcherId, role: ROLES.RESEARCHER });
 }
@@ -94,4 +114,55 @@ export async function deleteReport(id: string, researcherId: string) {
     data: { deletedAt: new Date() },
   });
   if (deleted.count === 0) throw new AppError(409, "Report status changed, please retry");
+}
+
+export async function triageReport(id: string, actor: Actor, input: TriageReportInput) {
+  const report = await prisma.report.findFirst({
+    where: { id, deletedAt: null },
+    select: { status: true, severity: true, programId: true },
+  });
+  if (!report) throw new AppError(404, "Report not found");
+
+  const next = input.status;
+  assertTransition(report.status, next);
+
+  const severity = input.severity ?? report.severity;
+  if (next === "ACCEPTED") {
+    if (!severity) throw new AppError(422, "Severity is required to accept a report");
+    const tier = await prisma.rewardTier.findUnique({
+      where: { programId_severity: { programId: report.programId, severity } },
+    });
+    if (!tier) throw new AppError(409, `The program has no reward tier for ${severity}`);
+  }
+  if (next === "DUPLICATE" && input.duplicateOfId) {
+    await assertValidOriginal(id, report.programId, input.duplicateOfId);
+  }
+
+  await prisma.$transaction((tx) =>
+    transitionReport(tx, {
+      reportId: id,
+      actorId: actor.id,
+      from: report.status,
+      to: next,
+      data: { severity, duplicateOfId: input.duplicateOfId },
+      metadata: { ...(input.note && { note: input.note }), ...(severity && { severity }) },
+    }),
+  );
+
+  return getReport(id, actor);
+}
+
+async function assertValidOriginal(reportId: string, programId: string, originalId: string) {
+  if (originalId === reportId) throw new AppError(422, "A report cannot duplicate itself");
+
+  const original = await prisma.report.findFirst({
+    where: { id: originalId, programId, deletedAt: null, duplicateOfId: null },
+    select: { id: true },
+  });
+  if (!original) {
+    throw new AppError(
+      422,
+      "Original report must exist in the same program and not be a duplicate",
+    );
+  }
 }
