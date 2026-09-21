@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { ROLES } from "../../shared/constants/roles";
 
-const email = z.email().trim().toLowerCase();
+const email = z.email().max(254).trim().toLowerCase();
 
 const password = z
   .string()
@@ -11,7 +11,7 @@ const password = z
   .regex(/\d/, "Password must contain a number");
 
 export const registerSchema = z.object({
-  body: z.object({
+  body: z.strictObject({
     email,
     password,
     name: z.string().trim().min(2).max(100),
@@ -21,18 +21,18 @@ export const registerSchema = z.object({
 });
 
 export const loginSchema = z.object({
-  body: z.object({
+  body: z.strictObject({
     email,
     password: z.string().min(1, "Password is required"),
   }),
 });
 
 export const refreshSchema = z.object({
-  body: z.object({ refreshToken: z.string().min(1, "Refresh token is required") }),
+  body: z.strictObject({ refreshToken: z.string().min(1, "Refresh token is required") }),
 });
 
 export const googleLoginSchema = z.object({
-  body: z.object({
+  body: z.strictObject({
     idToken: z.string().min(1, "Google ID token is required"),
     // Applies only when the Google account creates a new user.
     role: z.enum([ROLES.RESEARCHER, ROLES.PROGRAM_OWNER]).default(ROLES.RESEARCHER),

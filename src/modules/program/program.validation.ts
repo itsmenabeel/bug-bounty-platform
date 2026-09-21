@@ -3,8 +3,11 @@ import { PROGRAM_STATUS } from "../../shared/constants/programStatus";
 import { paginationQuery } from "../../shared/utils/pagination";
 
 const scope = z.object({
-  inScope: z.array(z.string().trim().min(1).max(200)).min(1, "At least one in-scope asset"),
-  outOfScope: z.array(z.string().trim().min(1).max(200)).default([]),
+  inScope: z
+    .array(z.string().trim().min(1).max(200))
+    .min(1, "At least one in-scope asset")
+    .max(100),
+  outOfScope: z.array(z.string().trim().min(1).max(200)).max(100).default([]),
   rules: z.string().trim().max(5000).optional(),
 });
 

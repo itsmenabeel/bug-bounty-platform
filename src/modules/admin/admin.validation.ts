@@ -3,14 +3,19 @@ import { ROLES } from "../../shared/constants/roles";
 import { paginationQuery } from "../../shared/utils/pagination";
 
 export const listAuditLogsSchema = z.object({
-  query: paginationQuery(["createdAt"], "createdAt").extend({
-    action: z.string().trim().min(1).max(100).optional(),
-    entityType: z.string().trim().min(1).max(50).optional(),
-    entityId: z.uuid("Invalid entity id").optional(),
-    actorId: z.uuid("Invalid actor id").optional(),
-    from: z.coerce.date().optional(),
-    to: z.coerce.date().optional(),
-  }),
+  query: paginationQuery(["createdAt"], "createdAt")
+    .extend({
+      action: z.string().trim().min(1).max(100).optional(),
+      entityType: z.string().trim().min(1).max(50).optional(),
+      entityId: z.uuid("Invalid entity id").optional(),
+      actorId: z.uuid("Invalid actor id").optional(),
+      from: z.coerce.date().optional(),
+      to: z.coerce.date().optional(),
+    })
+    .refine((query) => !query.from || !query.to || query.from <= query.to, {
+      message: "from must not be after to",
+      path: ["from"],
+    }),
 });
 
 export const listUsersSchema = z.object({

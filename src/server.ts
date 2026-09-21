@@ -22,6 +22,10 @@ async function main() {
   process.on("SIGTERM", shutdown);
 }
 
+process.on("unhandledRejection", (reason) => {
+  console.error("Unhandled promise rejection:", reason);
+});
+
 main().catch((error) => {
   console.error("Failed to start server:", error);
   process.exit(1);
