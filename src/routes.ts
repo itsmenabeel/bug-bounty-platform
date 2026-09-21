@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { adminRoutes } from "./modules/admin/admin.routes";
 import { authRoutes } from "./modules/auth/auth.routes";
+import { paymentRoutes } from "./modules/payment/payment.routes";
 import { payoutRoutes } from "./modules/payout/payout.routes";
 import { programRoutes } from "./modules/program/program.routes";
 import { reportRoutes } from "./modules/report/report.routes";
@@ -14,3 +15,4 @@ apiRouter.use("/programs", programRoutes);
 apiRouter.use("/reports", reportRoutes);
 apiRouter.use("/admin", adminRoutes);
 apiRouter.use("/payouts", payoutRoutes);
+apiRouter.use("/payments", paymentRoutes);

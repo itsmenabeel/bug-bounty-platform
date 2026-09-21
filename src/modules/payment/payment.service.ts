@@ -1,0 +1,129 @@
+import type { PaymentStatus } from "@prisma/client";
+import type Stripe from "stripe";
+import { env } from "../../config/env";
+import { prisma } from "../../config/prisma";
+import { stripe } from "../../config/stripe";
+import { PAYMENT_CURRENCY } from "../../shared/constants/payment";
+import { AppError } from "../../shared/errors/AppError";
+import { writeAudit } from "../../shared/utils/audit";
+import type { CreateCheckoutInput } from "./payment.validation";
+
+const withSessionId = (url: string) =>
+  `${url}${url.includes("?") ? "&" : "?"}session_id={CHECKOUT_SESSION_ID}`;
+
+export async function createCheckoutSession(ownerId: string, input: CreateCheckoutInput) {
+  const program = await prisma.program.findFirst({
+    where: { id: input.programId, deletedAt: null },
+    select: { id: true, ownerId: true, title: true, status: true },
+  });
+  if (!program) throw new AppError(404, "Program not found");
+  if (program.ownerId !== ownerId) throw new AppError(403, "You do not own this program");
+  if (program.status === "CLOSED") throw new AppError(409, "A closed program cannot be funded");
+
+  let session: Stripe.Checkout.Session;
+  try {
+    session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: PAYMENT_CURRENCY,
+            unit_amount: input.amount,
+            product_data: { name: `Bounty funding: ${program.title}` },
+          },
+        },
+      ],
+      success_url: withSessionId(env.PAYMENT_SUCCESS_URL),
+      cancel_url: env.PAYMENT_CANCEL_URL,
+      metadata: { programId: program.id, ownerId },
+    });
+  } catch (error) {
+    console.error("Stripe session creation failed:", error);
+    throw new AppError(502, "Payment provider is unavailable");
+  }
+  if (!session.url) throw new AppError(502, "Payment provider returned no checkout URL");
+
+  const payment = await prisma.payment.create({
+    data: { programId: program.id, amount: input.amount, stripeSessionId: session.id },
+    select: { id: true, programId: true, amount: true, currency: true, status: true },
+  });
+  return { payment, checkoutUrl: session.url };
+}
+
+/** Verifies the Stripe signature against the raw body, then applies the event. */
+export async function handleStripeEvent(rawBody: unknown, signature: string | undefined) {
+  if (!signature || !Buffer.isBuffer(rawBody)) {
+    throw new AppError(400, "Missing Stripe signature or raw body");
+  }
+
+  let event: Stripe.Event;
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, signature, env.STRIPE_WEBHOOK_SECRET);
+  } catch {
+    throw new AppError(400, "Invalid Stripe signature");
+  }
+
+  const session = event.data.object as Stripe.Checkout.Session;
+  switch (event.type) {
+    case "checkout.session.completed":
+    case "checkout.session.async_payment_succeeded":
+      if (session.payment_status === "paid") await creditPool(session);
+      break;
+    case "checkout.session.async_payment_failed":
+      await closePending(session.id, "FAILED");
+      break;
+    case "checkout.session.expired":
+      await closePending(session.id, "CANCELLED");
+      break;
+  }
+}
+
+// Only a PENDING payment can be closed, so duplicate deliveries change nothing.
+async function closePending(stripeSessionId: string, status: PaymentStatus) {
+  await prisma.payment.updateMany({
+    where: { stripeSessionId, status: "PENDING" },
+    data: { status },
+  });
+}
+
+/**
+ * Flips the payment PENDING to SUCCEEDED and credits the pool in one transaction.
+ * The conditional update lets only the first delivery claim the payment.
+ */
+async function creditPool(session: Stripe.Checkout.Session) {
+  const payment = await prisma.payment.findUnique({
+    where: { stripeSessionId: session.id },
+    select: { id: true, programId: true, amount: true, program: { select: { ownerId: true } } },
+  });
+  if (!payment) {
+    console.warn(`Stripe session ${session.id} has no matching payment; ignored`);
+    return;
+  }
+
+  if (session.amount_total !== payment.amount) {
+    console.error(`Amount mismatch for payment ${payment.id}; not credited`);
+    await closePending(session.id, "FAILED");
+    return;
+  }
+
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.payment.updateMany({
+      where: { id: payment.id, status: "PENDING" },
+      data: { status: "SUCCEEDED" },
+    });
+    if (claimed.count === 0) return;
+
+    await tx.program.update({
+      where: { id: payment.programId },
+      data: { poolBalance: { increment: payment.amount } },
+    });
+    await writeAudit(tx, {
+      actorId: payment.program.ownerId,
+      action: "POOL_FUNDED",
+      entityType: "Program",
+      entityId: payment.programId,
+      metadata: { paymentId: payment.id, amount: payment.amount, stripeSessionId: session.id },
+    });
+  });
+}
