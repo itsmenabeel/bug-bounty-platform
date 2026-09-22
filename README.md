@@ -134,4 +134,31 @@ TEST_DIRECT_URL=postgresql://USER:PASS@ep-yyyy.REGION.aws.neon.tech/DB?sslmode=r
 
 ## Deployment
 
-Render deployment configuration is the last item on the build plan and has not shipped yet.
+Database is [Neon](https://neon.tech); the API itself runs as a Render web service, using
+[`render.yaml`](render.yaml).
+
+1. Push this repo to GitHub.
+2. Render dashboard → **New** → **Blueprint** → select the repo. Render reads `render.yaml`
+   and provisions the service.
+3. Fill in the secret environment variables it prompts for: the same `DATABASE_URL` and
+   `DIRECT_URL` from local setup (a separate Neon branch for production is a good idea),
+   `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `PAYMENT_SUCCESS_URL`/
+   `PAYMENT_CANCEL_URL`, `CORS_ORIGINS` set to the real frontend origin, and
+   `SEED_ADMIN_PASSWORD` set to a real password. `REDIS_URL` and `GOOGLE_CLIENT_ID` stay
+   optional.
+4. In the Stripe dashboard, add a webhook endpoint pointing at
+   `https://<your-service>.onrender.com/api/v1/payments/webhook`, subscribed to
+   `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
+   `checkout.session.async_payment_failed`, and `checkout.session.expired`. Stripe issues a
+   new signing secret for this endpoint, separate from the one the Stripe CLI used locally;
+   put it in `STRIPE_WEBHOOK_SECRET`.
+5. Deploy. `startCommand` runs `prisma migrate deploy` before `npm start` on every boot, so
+   the schema is always current; it's a no-op once there's nothing pending.
+6. Seed once, from the Render shell: `npm run db:seed`. It's safe to run again later — it
+   upserts the demo users and only creates the demo program if it doesn't already exist.
+
+The free Render plan spins the service down after inactivity, so a webhook that arrives while
+it's asleep can be missed by the time Render wakes back up. `POST /payments/{id}/verify`
+exists for exactly this: it asks Stripe for the session status directly and applies it through
+the same idempotent path the webhook uses, so a payment isn't stuck as `PENDING` because of a
+missed delivery.

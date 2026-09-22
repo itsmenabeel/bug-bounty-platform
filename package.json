@@ -6,7 +6,7 @@
   "private": true,
   "type": "commonjs",
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
