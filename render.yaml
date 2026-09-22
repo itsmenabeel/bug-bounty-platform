@@ -3,10 +3,10 @@
 # Database is Neon, not Render Postgres, so no `databases:` block here.
 services:
   - type: web
-    name: bug-bounty-platform-api
+    name: bug-bounty-platform
     runtime: node
     plan: free
-    region: oregon
+    region: singapore
     branch: main
     # --include=dev overrides NODE_ENV=production for this install: the build needs
     # typescript and the @types/* packages, even though the running server doesn't.
