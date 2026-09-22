@@ -1,0 +1,2065 @@
+{
+  "info": {
+    "name": "Bug Bounty & Disclosure Platform",
+    "description": "End-to-end walkthrough of the API: register, create and fund a program, submit and triage a report, and pay it out. Import docs/postman_environment.json alongside this collection and select it before running. Run folders top to bottom, or use Collection Runner on the whole collection — it is idempotent (Ban/Unban User at the end resets state, and Register generates a fresh email each run). One manual step: in the Payments folder, open checkoutUrl in a browser and pay with 4242 4242 4242 4242 before running Payouts, or the reward fails with 409 INSUFFICIENT_POOL because the pool has not been funded yet.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Registration, login, and token lifecycle. Run Register first to seed accessToken/refreshToken/userId for the rest of the collection.",
+      "item": [
+        {
+          "name": "Register (Researcher)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Creates a fresh researcher account. Generates a unique email each run.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{registerEmail}}\",\n  \"password\": \"Demo@12345\",\n  \"name\": \"Demo Researcher\",\n  \"role\": \"RESEARCHER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.environment.set('registerEmail', `researcher.${Date.now()}@example.com`);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.environment.set('accessToken', body.data.accessToken);",
+                  "pm.environment.set('refreshToken', body.data.refreshToken);",
+                  "pm.environment.set('userId', body.data.user.id);",
+                  "pm.test('response has tokens', function () { pm.expect(body.data.accessToken).to.be.a('string'); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (Admin, seeded)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Logs in the seeded admin account. Override the password if SEED_ADMIN_PASSWORD was set to something else.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@bugbounty.dev\",\n  \"password\": \"Admin@12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.environment.set('adminAccessToken', body.data.accessToken);",
+                  "pm.environment.set('adminRefreshToken', body.data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login (Program Owner, seeded)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Logs in the seeded program owner account.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"owner@bugbounty.dev\",\n  \"password\": \"Demo@12345\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.environment.set('ownerAccessToken', body.data.accessToken);",
+                  "pm.environment.set('ownerRefreshToken', body.data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Google Login (reference only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/google",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "google"
+              ]
+            },
+            "description": "Needs a real Google ID token signed for GOOGLE_CLIENT_ID; a placeholder returns 401, which this request expects.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"idToken\": \"PASTE-A-REAL-GOOGLE-ID-TOKEN-HERE\",\n  \"role\": \"RESEARCHER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [401]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([401]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:false', function () {",
+                  "  pm.expect(body.success).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Refresh Token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh-token"
+              ]
+            },
+            "description": "Each refresh token works once, so this replaces accessToken and refreshToken with a new pair.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.environment.set('accessToken', body.data.accessToken);",
+                  "pm.environment.set('refreshToken', body.data.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/logout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "logout"
+              ]
+            },
+            "description": "Revokes the refresh token. Placed last in this folder so earlier requests in a full run still have a live token; run it on its own to actually log out.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"refreshToken\": \"{{refreshToken}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "description": "The signed-in user's own profile.",
+      "item": [
+        {
+          "name": "Get Me",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Me",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "me"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Demo Researcher (edited)\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Programs",
+      "description": "Bug bounty programs and their reward tiers. Requests use the seeded program owner.",
+      "item": [
+        {
+          "name": "Create Program",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/programs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "programs"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Postman Demo Program\",\n  \"description\": \"A program created from the Postman collection to walk through the API end to end.\",\n  \"scope\": {\n    \"inScope\": [\n      \"*.example.com\",\n      \"api.example.com\"\n    ],\n    \"outOfScope\": [\n      \"staging.example.com\"\n    ],\n    \"rules\": \"No automated scanning without notice.\"\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.environment.set('programId', body.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Set Reward Tiers",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/programs/{{programId}}/reward-tiers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "programs",
+                "{{programId}}",
+                "reward-tiers"
+              ]
+            },
+            "description": "A program needs at least one reward tier before it can go ACTIVE.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"tiers\": [\n    {\n      \"severity\": \"LOW\",\n      \"amount\": 5000\n    },\n    {\n      \"severity\": \"MEDIUM\",\n      \"amount\": 20000\n    },\n    {\n      \"severity\": \"HIGH\",\n      \"amount\": 75000\n    },\n    {\n      \"severity\": \"CRITICAL\",\n      \"amount\": 250000\n    }\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Activate Program",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/programs/{{programId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "programs",
+                "{{programId}}",
+                "status"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Programs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/programs?page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "programs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Program",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/programs/{{programId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "programs",
+                "{{programId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Program",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/programs/{{programId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "programs",
+                "{{programId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated description from the Postman collection.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payments",
+      "description": "Stripe checkout and pool funding. The webhook is called by Stripe, not from Postman; use Verify Payment or the Stripe CLI (`stripe trigger checkout.session.completed`) instead.",
+      "item": [
+        {
+          "name": "Create Checkout Session",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/payments/checkout",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "checkout"
+              ]
+            },
+            "description": "Returns a hosted Stripe URL. Open data.checkoutUrl in a browser and pay with card 4242 4242 4242 4242 to complete it for real.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"programId\": \"{{programId}}\",\n  \"amount\": 100000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.environment.set('paymentId', body.data.payment.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Payments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments?programId={{programId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments"
+              ],
+              "query": [
+                {
+                  "key": "programId",
+                  "value": "{{programId}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Payment",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{paymentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "{{paymentId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Verify Payment",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payments/{{paymentId}}/verify",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "{{paymentId}}",
+                "verify"
+              ]
+            },
+            "description": "Asks Stripe directly for the session status and applies it. Run this after paying through checkoutUrl in a browser, to credit the pool without waiting on the webhook. A no-op until the checkout is actually completed.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Webhook (reference only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/payments/webhook",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payments",
+                "webhook"
+              ]
+            },
+            "description": "Called by Stripe, not from Postman — it needs a valid Stripe-Signature header over the raw body, which Postman cannot produce. Stripe calls this automatically once `stripe listen --forward-to localhost:5000/api/v1/payments/webhook` is running. Sending it from here without a signature returns 400, which this request expects.",
+            "auth": {
+              "type": "noauth"
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"checkout.session.completed\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [400]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([400]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:false', function () {",
+                  "  pm.expect(body.success).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Reports",
+      "description": "Vulnerability reports and triage. Submission uses the fresh researcher account; triage uses the seeded admin. Run the Payments folder first so the pool can afford the reward in the Payouts folder.",
+      "item": [
+        {
+          "name": "Submit Report",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"programId\": \"{{programId}}\",\n  \"title\": \"Reflected XSS on search page\",\n  \"description\": \"The `q` parameter on /search is reflected without encoding, allowing arbitrary script execution in a victim's browser.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.environment.set('reportId', body.data.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Reports",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports?page=1&limit=10",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Report",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update Report",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}"
+              ]
+            },
+            "description": "Only legal while the report is NEW or NEEDS_INFO.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"description\": \"Updated: the `q` parameter on /search and /search/advanced are both affected.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Triage: Move to TRIAGING",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}",
+                "status"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"TRIAGING\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Triage: Accept with severity",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}",
+                "status"
+              ]
+            },
+            "description": "The program must already have a reward tier for the chosen severity.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACCEPTED\",\n  \"severity\": \"HIGH\",\n  \"note\": \"Confirmed against a test account.\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Comments",
+      "description": "Discussion thread on a report. Open to anyone who can see the report.",
+      "item": [
+        {
+          "name": "Add Comment",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}",
+                "comments"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"body\": \"Can you share a proof-of-concept payload and the affected browser?\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Comments",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}/comments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}",
+                "comments"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Payouts",
+      "description": "Rewards paid to researchers. Reward Report is the concurrency-safe money-moving endpoint (see README).",
+      "item": [
+        {
+          "name": "Reward Report",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}/reward",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}",
+                "reward"
+              ]
+            },
+            "description": "Debits the program pool, credits the researcher's wallet and reputation, and marks the report REWARDED. Run it twice to see 409 ALREADY_REWARDED.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Payouts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/payouts?programId={{programId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "payouts"
+              ],
+              "query": [
+                {
+                  "key": "programId",
+                  "value": "{{programId}}",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin",
+      "description": "User management, audit log, and platform stats. Admin only.",
+      "item": [
+        {
+          "name": "List Audit Logs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/audit-logs?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "audit-logs"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users?page=1&limit=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1",
+                  "disabled": false
+                },
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "disabled": false
+                }
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Update User Role",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{userId}}/role",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}",
+                "role"
+              ]
+            },
+            "description": "Promotes the demo researcher created by Register. Refused on your own account and on the last active admin.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"role\": \"PROGRAM_OWNER\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ban User",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{userId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}",
+                "status"
+              ]
+            },
+            "description": "Pauses the user's ACTIVE programs if they own any.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": false,\n  \"reason\": \"Postman collection demo\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Unban User",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/admin/users/{{userId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "users",
+                "{{userId}}",
+                "status"
+              ]
+            },
+            "description": "Undoes the previous request, so re-running this collection from the top still works.",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"isActive\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Dashboard Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/admin/dashboard-stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "admin",
+                "dashboard-stats"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,201]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,201]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Cleanup (optional)",
+      "description": "Soft-delete requests. Not part of the automated run — both are expected to return 409 against the demo data left by the rest of this collection (the program's pool is not empty, and REWARDED is not a withdrawable report status), which is correct, documented behavior, not a bug. Run them by hand against a program/report with no funds or open work to see the 200 path.",
+      "item": [
+        {
+          "name": "Delete Report",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/reports/{{reportId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "reports",
+                "{{reportId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{accessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,409]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,409]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Delete Program",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/programs/{{programId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "programs",
+                "{{programId}}"
+              ]
+            },
+            "description": "",
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{ownerAccessToken}}",
+                  "type": "string"
+                }
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is [200,409]', function () {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200,409]);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

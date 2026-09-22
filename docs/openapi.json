@@ -1,0 +1,1167 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Bug Bounty & Disclosure Platform API",
+    "version": "1.0.0",
+    "description": "REST API for a bug bounty platform: programs, report submission and triage, reward payouts, and Stripe-funded pools. Every response uses the envelope `{ success, message, data, meta? }` on success and `{ success: false, message, errors: [] }` on failure. Money is always an integer number of cents.",
+    "contact": { "name": "API support" }
+  },
+  "servers": [
+    { "url": "http://localhost:5000/api/v1", "description": "Local development" },
+    { "url": "https://REPLACE-WITH-RENDER-URL.onrender.com/api/v1", "description": "Production" }
+  ],
+  "tags": [
+    { "name": "Auth", "description": "Registration, login, and token lifecycle" },
+    { "name": "Users", "description": "The signed-in user's own profile" },
+    { "name": "Programs", "description": "Bug bounty programs and their reward tiers" },
+    { "name": "Reports", "description": "Vulnerability reports and triage" },
+    { "name": "Comments", "description": "Discussion threads on a report" },
+    { "name": "Payouts", "description": "Rewards paid to researchers" },
+    { "name": "Payments", "description": "Stripe checkout and pool funding" },
+    { "name": "Admin", "description": "User management, audit log, and platform stats" }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Register a researcher or program owner account",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RegisterRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthEnvelope" } } }
+          },
+          "409": { "description": "Email is already registered", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log in with email and password",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/LoginRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Login successful", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthEnvelope" } } } },
+          "401": { "description": "Invalid email or password", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Account is disabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/auth/google": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Log in or register with a Google ID token",
+        "description": "Verifies the ID token against `GOOGLE_CLIENT_ID`. Matches an existing account by Google ID, then by verified email; creates a new account otherwise.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GoogleLoginRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Login successful", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuthEnvelope" } } } },
+          "401": { "description": "Invalid Google token or unverified email", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Account is disabled", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Email is linked to a different Google account", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" },
+          "503": { "description": "Google login is not configured", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/auth/refresh-token": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Exchange a refresh token for a new token pair",
+        "description": "Each refresh token works once. Reusing one that was already redeemed or logged out returns 401.",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Token refreshed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TokensEnvelope" } } } },
+          "401": { "description": "Invalid, expired, or already-used refresh token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "tags": ["Auth"],
+        "summary": "Revoke a refresh token",
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefreshRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Logged out", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmptyEnvelope" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/users/me": {
+      "get": {
+        "tags": ["Users"],
+        "summary": "Get the signed-in user's profile",
+        "responses": {
+          "200": { "description": "Profile retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "patch": {
+        "tags": ["Users"],
+        "summary": "Update the signed-in user's display name",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProfileRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Profile updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/programs": {
+      "post": {
+        "tags": ["Programs"],
+        "summary": "Create a program",
+        "description": "Program owner only. A new program starts in DRAFT status.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateProgramRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Program created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "get": {
+        "tags": ["Programs"],
+        "summary": "List programs",
+        "description": "Researchers and admins see ACTIVE programs by default; an owner adds `mine=true` to see their own programs at any status, including DRAFT. Admins see every status. The list is cached for 60 seconds per audience and filter combination; a hit sets `X-Cache: HIT`.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt", "title", "poolBalance"], "default": "createdAt" } },
+          { "$ref": "#/components/parameters/Order" },
+          { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "status", "in": "query", "schema": { "type": "string", "enum": ["DRAFT", "ACTIVE", "PAUSED", "CLOSED"] } },
+          { "name": "mine", "in": "query", "schema": { "type": "boolean", "default": false }, "description": "Program owners only" }
+        ],
+        "responses": {
+          "200": {
+            "description": "Programs retrieved",
+            "headers": { "X-Cache": { "schema": { "type": "string", "enum": ["HIT", "MISS", "BYPASS"] } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramListEnvelope" } } }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "description": "mine=true from a non-owner", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/programs/{id}": {
+      "get": {
+        "tags": ["Programs"],
+        "summary": "Get a program",
+        "description": "A non-ACTIVE program is visible only to its owner and admins; anyone else gets 404.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Program retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "patch": {
+        "tags": ["Programs"],
+        "summary": "Update a program's title, description, or scope",
+        "description": "Owner only, and not while the program is CLOSED.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProgramRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Program updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Program is closed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "delete": {
+        "tags": ["Programs"],
+        "summary": "Soft-delete a program",
+        "description": "Owner only. Refused while the pool holds funds or reports are still open.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Program deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmptyEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Funded pool or open reports remain", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/programs/{id}/reward-tiers": {
+      "put": {
+        "tags": ["Programs"],
+        "summary": "Set the reward amount per severity",
+        "description": "Owner only, and not while the program is CLOSED. Replaces the amount for each severity listed; severities not listed are untouched.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SetRewardTiersRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Reward tiers saved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Program is closed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/programs/{id}/status": {
+      "patch": {
+        "tags": ["Programs"],
+        "summary": "Change a program's status",
+        "description": "Owner only. Legal transitions: DRAFT→ACTIVE/CLOSED, ACTIVE→PAUSED/CLOSED, PAUSED→ACTIVE/CLOSED. CLOSED is terminal. Activating requires at least one reward tier.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateProgramStatusRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Program status updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Illegal transition, or no reward tiers set", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/reports": {
+      "post": {
+        "tags": ["Reports"],
+        "summary": "Submit a vulnerability report",
+        "description": "Researcher only, and only against an ACTIVE program. Limited to 10 submissions per hour per researcher.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateReportRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Report submitted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "Program not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Program is not ACTIVE", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      },
+      "get": {
+        "tags": ["Reports"],
+        "summary": "List reports",
+        "description": "Researchers see their own reports, owners see reports on their programs, admins see every report.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt", "updatedAt", "title"], "default": "createdAt" } },
+          { "$ref": "#/components/parameters/Order" },
+          { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/ReportStatus" } },
+          { "name": "severity", "in": "query", "schema": { "$ref": "#/components/schemas/Severity" } },
+          { "name": "programId", "in": "query", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Reports retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportListEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/reports/{id}": {
+      "get": {
+        "tags": ["Reports"],
+        "summary": "Get a report",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Report retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "patch": {
+        "tags": ["Reports"],
+        "summary": "Edit a report's title or description",
+        "description": "The reporting researcher only, and only while the report is NEW or NEEDS_INFO. Editing a NEEDS_INFO report moves it back to TRIAGING.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateReportRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Report updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Report is not in an editable status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "delete": {
+        "tags": ["Reports"],
+        "summary": "Withdraw a report",
+        "description": "The reporting researcher only, and only while the report is NEW or NEEDS_INFO.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Report deleted", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmptyEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Report is not in a withdrawable status", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/reports/{id}/status": {
+      "patch": {
+        "tags": ["Reports"],
+        "summary": "Triage a report",
+        "description": "Admin only. Legal transitions: NEW→TRIAGING/REJECTED/DUPLICATE, TRIAGING→ACCEPTED/NEEDS_INFO/REJECTED/DUPLICATE, NEEDS_INFO→TRIAGING. REWARDED is reached only through the reward endpoint. ACCEPTED requires a severity with a matching reward tier on the program. DUPLICATE requires `duplicateOfId`.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/TriageReportRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Report status updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReportEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Illegal transition, missing reward tier, or invalid duplicate target", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/reports/{id}/comments": {
+      "post": {
+        "tags": ["Comments"],
+        "summary": "Add a comment to a report",
+        "description": "Open to anyone who can see the report: the reporting researcher, the program owner, or an admin.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCommentRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Comment added", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      },
+      "get": {
+        "tags": ["Comments"],
+        "summary": "List comments on a report",
+        "parameters": [
+          { "$ref": "#/components/parameters/IdParam" },
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt"], "default": "createdAt" } },
+          { "name": "order", "in": "query", "schema": { "type": "string", "enum": ["asc", "desc"], "default": "asc" } }
+        ],
+        "responses": {
+          "200": { "description": "Comments retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CommentListEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/reports/{id}/reward": {
+      "post": {
+        "tags": ["Payouts"],
+        "summary": "Pay the reward for an accepted report",
+        "description": "Admin only. Debits the program pool, credits the researcher's wallet and reputation, and moves the report to REWARDED, all in one transaction. Safe under concurrency: a conditional pool decrement rejects an overdraw with `409 INSUFFICIENT_POOL`, and the unique `Payout.reportId` rejects a repeat with `409 ALREADY_REWARDED`.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Reward issued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RewardEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": {
+            "description": "Report is not ACCEPTED, already rewarded, no matching reward tier, or the pool cannot cover the amount",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Error" },
+                "examples": {
+                  "alreadyRewarded": { "value": { "success": false, "message": "This report has already been rewarded", "errors": [{ "code": "ALREADY_REWARDED" }] } },
+                  "insufficientPool": { "value": { "success": false, "message": "The program pool cannot cover this reward", "errors": [{ "code": "INSUFFICIENT_POOL" }] } }
+                }
+              }
+            }
+          },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/payouts": {
+      "get": {
+        "tags": ["Payouts"],
+        "summary": "List payouts",
+        "description": "Researchers see their own payouts, owners see payouts on their programs, admins see every payout.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt", "amount"], "default": "createdAt" } },
+          { "$ref": "#/components/parameters/Order" },
+          { "name": "programId", "in": "query", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": { "description": "Payouts retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PayoutListEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/payments/checkout": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Start a Stripe Checkout session to fund a program's pool",
+        "description": "Owner only, for a program they own that is not CLOSED. Returns a hosted Stripe URL to redirect the browser to.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCheckoutRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Checkout session created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CheckoutEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "description": "Program not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Program is closed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "502": { "description": "Stripe is unavailable or returned no checkout URL", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/payments/webhook": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Stripe webhook receiver",
+        "description": "Called by Stripe, not by a client. Verifies the `Stripe-Signature` header against the raw request body. Idempotent: replays of the same event change nothing after the first successful delivery. Exempt from rate limiting.",
+        "security": [],
+        "parameters": [
+          { "name": "Stripe-Signature", "in": "header", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "description": "Raw Stripe event payload" } } }
+        },
+        "responses": {
+          "200": { "description": "Webhook received", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EmptyEnvelope" } } } },
+          "400": { "description": "Missing or invalid Stripe signature", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/payments": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "List payments",
+        "description": "Program owner or admin only. Owners see payments on their own programs; admins see all.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt", "amount"], "default": "createdAt" } },
+          { "$ref": "#/components/parameters/Order" },
+          { "name": "status", "in": "query", "schema": { "$ref": "#/components/schemas/PaymentStatus" } },
+          { "name": "programId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "sessionId", "in": "query", "schema": { "type": "string", "maxLength": 255 } }
+        ],
+        "responses": {
+          "200": { "description": "Payments retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentListEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/payments/{id}": {
+      "get": {
+        "tags": ["Payments"],
+        "summary": "Get a payment",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Payment retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/payments/{id}/verify": {
+      "post": {
+        "tags": ["Payments"],
+        "summary": "Re-check a payment's status with Stripe",
+        "description": "Covers a webhook that never arrived. Asks Stripe for the session state directly and applies it through the same idempotent path the webhook uses. A no-op if the payment is no longer PENDING.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Payment status refreshed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PaymentEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "502": { "description": "Stripe is unavailable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/admin/audit-logs": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List the audit log",
+        "description": "Admin only. Every status change, role change, ban, and money movement is recorded.",
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt"], "default": "createdAt" } },
+          { "$ref": "#/components/parameters/Order" },
+          { "name": "action", "in": "query", "schema": { "type": "string", "maxLength": 100 } },
+          { "name": "entityType", "in": "query", "schema": { "type": "string", "maxLength": 50 } },
+          { "name": "entityId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "actorId", "in": "query", "schema": { "type": "string", "format": "uuid" } },
+          { "name": "from", "in": "query", "schema": { "type": "string", "format": "date-time" } },
+          { "name": "to", "in": "query", "schema": { "type": "string", "format": "date-time" } }
+        ],
+        "responses": {
+          "200": { "description": "Audit logs retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AuditLogListEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "description": "Bad query, including from after to", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/admin/users": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "List users",
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt", "name", "email", "reputation"], "default": "createdAt" } },
+          { "$ref": "#/components/parameters/Order" },
+          { "name": "role", "in": "query", "schema": { "$ref": "#/components/schemas/Role" } },
+          { "name": "isActive", "in": "query", "schema": { "type": "boolean" } },
+          { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 } }
+        ],
+        "responses": {
+          "200": { "description": "Users retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserListEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/admin/users/{id}/role": {
+      "patch": {
+        "tags": ["Admin"],
+        "summary": "Change a user's role",
+        "description": "Refused on your own account, on a program owner who still owns programs, and when demoting or reassigning the last active admin.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateUserRoleRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "User role updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Own account, owner still has programs, or last admin", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/admin/users/{id}/status": {
+      "patch": {
+        "tags": ["Admin"],
+        "summary": "Ban or unban a user",
+        "description": "Refused on your own account and when banning the last active admin. Banning a program owner pauses their ACTIVE programs.",
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateUserStatusRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "User status updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UserStatusEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "409": { "description": "Own account, or last active admin", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "422": { "$ref": "#/components/responses/ValidationError" }
+        }
+      }
+    },
+    "/admin/dashboard-stats": {
+      "get": {
+        "tags": ["Admin"],
+        "summary": "Platform-wide counts and totals",
+        "responses": {
+          "200": { "description": "Dashboard statistics retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DashboardStatsEnvelope" } } } },
+          "401": { "$ref": "#/components/responses/Unauthorized" },
+          "403": { "$ref": "#/components/responses/Forbidden" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "Access token from register, login, or refresh-token." }
+    },
+    "parameters": {
+      "IdParam": { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+      "Page": { "name": "page", "in": "query", "schema": { "type": "integer", "minimum": 1, "default": 1 } },
+      "Limit": { "name": "limit", "in": "query", "schema": { "type": "integer", "minimum": 1, "maximum": 50, "default": 10 } },
+      "Order": { "name": "order", "in": "query", "schema": { "type": "string", "enum": ["asc", "desc"], "default": "desc" } }
+    },
+    "responses": {
+      "Unauthorized": { "description": "Missing, invalid, or expired token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "Forbidden": { "description": "Signed in, but the role or ownership does not permit this", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "NotFound": { "description": "No such resource, or it is hidden from this caller", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "ValidationError": { "description": "The body, params, or query failed validation", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+      "TooManyRequests": { "description": "Rate limit exceeded", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": false },
+          "message": { "type": "string" },
+          "errors": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "PaginationMeta": {
+        "type": "object",
+        "properties": {
+          "page": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "total": { "type": "integer" },
+          "totalPages": { "type": "integer" }
+        }
+      },
+      "Role": { "type": "string", "enum": ["RESEARCHER", "PROGRAM_OWNER", "ADMIN"] },
+      "ProgramStatus": { "type": "string", "enum": ["DRAFT", "ACTIVE", "PAUSED", "CLOSED"] },
+      "ReportStatus": { "type": "string", "enum": ["NEW", "TRIAGING", "NEEDS_INFO", "ACCEPTED", "DUPLICATE", "REJECTED", "REWARDED"] },
+      "Severity": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+      "PaymentStatus": { "type": "string", "enum": ["PENDING", "SUCCEEDED", "FAILED", "CANCELLED"] },
+      "PayoutStatus": { "type": "string", "enum": ["PENDING", "PAID"] },
+
+      "PublicUser": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "role": { "$ref": "#/components/schemas/Role" },
+          "reputation": { "type": "integer" },
+          "walletBalance": { "type": "integer", "description": "Cents" },
+          "isActive": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "AuthTokens": {
+        "type": "object",
+        "properties": {
+          "accessToken": { "type": "string" },
+          "refreshToken": { "type": "string" }
+        }
+      },
+      "RewardTier": {
+        "type": "object",
+        "properties": {
+          "severity": { "$ref": "#/components/schemas/Severity" },
+          "amount": { "type": "integer", "description": "Cents" }
+        }
+      },
+      "ProgramScope": {
+        "type": "object",
+        "properties": {
+          "inScope": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 100 },
+          "outOfScope": { "type": "array", "items": { "type": "string" }, "maxItems": 100 },
+          "rules": { "type": "string", "maxLength": 5000 }
+        },
+        "required": ["inScope"]
+      },
+      "Program": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "ownerId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "scope": { "$ref": "#/components/schemas/ProgramScope" },
+          "status": { "$ref": "#/components/schemas/ProgramStatus" },
+          "poolBalance": { "type": "integer", "description": "Cents" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "rewardTiers": { "type": "array", "items": { "$ref": "#/components/schemas/RewardTier" } }
+        }
+      },
+      "ReportRef": {
+        "type": "object",
+        "properties": { "id": { "type": "string", "format": "uuid" }, "title": { "type": "string" } }
+      },
+      "ProgramRef": {
+        "type": "object",
+        "properties": { "id": { "type": "string", "format": "uuid" }, "title": { "type": "string" } }
+      },
+      "ResearcherRef": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "reputation": { "type": "integer" }
+        }
+      },
+      "Report": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "programId": { "type": "string", "format": "uuid" },
+          "researcherId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "description": { "type": "string" },
+          "severity": { "oneOf": [{ "$ref": "#/components/schemas/Severity" }, { "type": "null" }] },
+          "status": { "$ref": "#/components/schemas/ReportStatus" },
+          "duplicateOfId": { "oneOf": [{ "type": "string", "format": "uuid" }, { "type": "null" }] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "program": { "$ref": "#/components/schemas/ProgramRef" },
+          "researcher": { "$ref": "#/components/schemas/ResearcherRef" }
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "reportId": { "type": "string", "format": "uuid" },
+          "body": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "author": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "name": { "type": "string" },
+              "role": { "$ref": "#/components/schemas/Role" }
+            }
+          }
+        }
+      },
+      "PayoutListItem": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "amount": { "type": "integer", "description": "Cents" },
+          "status": { "$ref": "#/components/schemas/PayoutStatus" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "report": { "$ref": "#/components/schemas/ReportRef" },
+          "program": { "$ref": "#/components/schemas/ProgramRef" },
+          "researcher": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "name": { "type": "string" } } }
+        }
+      },
+      "PayoutRecord": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "reportId": { "type": "string", "format": "uuid" },
+          "amount": { "type": "integer", "description": "Cents" },
+          "status": { "$ref": "#/components/schemas/PayoutStatus" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Payment": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "programId": { "type": "string", "format": "uuid" },
+          "amount": { "type": "integer", "description": "Cents" },
+          "currency": { "type": "string", "example": "usd" },
+          "provider": { "type": "string", "example": "stripe" },
+          "status": { "$ref": "#/components/schemas/PaymentStatus" },
+          "stripeSessionId": { "type": "string" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "program": { "$ref": "#/components/schemas/ProgramRef" }
+        }
+      },
+      "AuditLogEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "action": { "type": "string", "example": "PAYOUT_ISSUED" },
+          "entityType": { "type": "string", "example": "Report" },
+          "entityId": { "type": "string", "format": "uuid" },
+          "metadata": { "type": "object", "nullable": true },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "actor": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "format": "uuid" },
+              "name": { "type": "string" },
+              "role": { "$ref": "#/components/schemas/Role" }
+            }
+          }
+        }
+      },
+      "DashboardStats": {
+        "type": "object",
+        "properties": {
+          "users": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "banned": { "type": "integer" },
+              "byRole": { "type": "object", "additionalProperties": { "type": "integer" } }
+            }
+          },
+          "programs": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "byStatus": { "type": "object", "additionalProperties": { "type": "integer" } },
+              "totalPoolBalance": { "type": "integer", "description": "Cents" }
+            }
+          },
+          "reports": {
+            "type": "object",
+            "properties": {
+              "total": { "type": "integer" },
+              "byStatus": { "type": "object", "additionalProperties": { "type": "integer" } },
+              "bySeverity": { "type": "object", "additionalProperties": { "type": "integer" } },
+              "createdLast7Days": { "type": "integer" }
+            }
+          },
+          "money": {
+            "type": "object",
+            "properties": {
+              "totalFunded": { "type": "integer", "description": "Cents" },
+              "totalPaidOut": { "type": "integer", "description": "Cents" },
+              "payoutCount": { "type": "integer" },
+              "pendingPayments": { "type": "integer" }
+            }
+          }
+        }
+      },
+
+      "RegisterRequest": {
+        "type": "object",
+        "required": ["email", "password", "name"],
+        "properties": {
+          "email": { "type": "string", "format": "email", "maxLength": 254 },
+          "password": { "type": "string", "minLength": 8, "maxLength": 72, "description": "Must contain a letter and a number" },
+          "name": { "type": "string", "minLength": 2, "maxLength": 100 },
+          "role": { "type": "string", "enum": ["RESEARCHER", "PROGRAM_OWNER"], "default": "RESEARCHER" }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "required": ["email", "password"],
+        "properties": { "email": { "type": "string", "format": "email" }, "password": { "type": "string" } }
+      },
+      "GoogleLoginRequest": {
+        "type": "object",
+        "required": ["idToken"],
+        "properties": {
+          "idToken": { "type": "string" },
+          "role": { "type": "string", "enum": ["RESEARCHER", "PROGRAM_OWNER"], "default": "RESEARCHER", "description": "Applies only when this creates a new account" }
+        }
+      },
+      "RefreshRequest": {
+        "type": "object",
+        "required": ["refreshToken"],
+        "properties": { "refreshToken": { "type": "string" } }
+      },
+      "UpdateProfileRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": { "name": { "type": "string", "minLength": 2, "maxLength": 100 } }
+      },
+      "CreateProgramRequest": {
+        "type": "object",
+        "required": ["title", "description", "scope"],
+        "properties": {
+          "title": { "type": "string", "minLength": 3, "maxLength": 150 },
+          "description": { "type": "string", "minLength": 10, "maxLength": 10000 },
+          "scope": { "$ref": "#/components/schemas/ProgramScope" }
+        }
+      },
+      "UpdateProgramRequest": {
+        "type": "object",
+        "description": "At least one field is required",
+        "properties": {
+          "title": { "type": "string", "minLength": 3, "maxLength": 150 },
+          "description": { "type": "string", "minLength": 10, "maxLength": 10000 },
+          "scope": { "$ref": "#/components/schemas/ProgramScope" }
+        }
+      },
+      "SetRewardTiersRequest": {
+        "type": "object",
+        "required": ["tiers"],
+        "properties": {
+          "tiers": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Each severity may appear at most once",
+            "items": {
+              "type": "object",
+              "required": ["severity", "amount"],
+              "properties": {
+                "severity": { "$ref": "#/components/schemas/Severity" },
+                "amount": { "type": "integer", "minimum": 1, "maximum": 100000000, "description": "Cents" }
+              }
+            }
+          }
+        }
+      },
+      "UpdateProgramStatusRequest": {
+        "type": "object",
+        "required": ["status"],
+        "properties": { "status": { "type": "string", "enum": ["ACTIVE", "PAUSED", "CLOSED"] } }
+      },
+      "CreateReportRequest": {
+        "type": "object",
+        "required": ["programId", "title", "description"],
+        "properties": {
+          "programId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string", "minLength": 5, "maxLength": 200 },
+          "description": { "type": "string", "minLength": 20, "maxLength": 20000 }
+        }
+      },
+      "UpdateReportRequest": {
+        "type": "object",
+        "description": "At least one field is required",
+        "properties": {
+          "title": { "type": "string", "minLength": 5, "maxLength": 200 },
+          "description": { "type": "string", "minLength": 20, "maxLength": 20000 }
+        }
+      },
+      "TriageReportRequest": {
+        "type": "object",
+        "required": ["status"],
+        "properties": {
+          "status": { "type": "string", "enum": ["TRIAGING", "NEEDS_INFO", "ACCEPTED", "REJECTED", "DUPLICATE"] },
+          "severity": { "$ref": "#/components/schemas/Severity" },
+          "duplicateOfId": { "type": "string", "format": "uuid", "description": "Required when status is DUPLICATE, forbidden otherwise" },
+          "note": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      },
+      "CreateCommentRequest": {
+        "type": "object",
+        "required": ["body"],
+        "properties": { "body": { "type": "string", "minLength": 1, "maxLength": 5000 } }
+      },
+      "CreateCheckoutRequest": {
+        "type": "object",
+        "required": ["programId", "amount"],
+        "properties": {
+          "programId": { "type": "string", "format": "uuid" },
+          "amount": { "type": "integer", "minimum": 500, "maximum": 10000000, "description": "Cents. Min 500 ($5), max 10,000,000 ($100,000)" }
+        }
+      },
+      "UpdateUserRoleRequest": {
+        "type": "object",
+        "required": ["role"],
+        "properties": { "role": { "$ref": "#/components/schemas/Role" } }
+      },
+      "UpdateUserStatusRequest": {
+        "type": "object",
+        "required": ["isActive"],
+        "properties": {
+          "isActive": { "type": "boolean" },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }
+      },
+
+      "EmptyEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "type": "null" } }
+      },
+      "AuthEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "user": { "$ref": "#/components/schemas/PublicUser" },
+              "accessToken": { "type": "string" },
+              "refreshToken": { "type": "string" }
+            }
+          }
+        }
+      },
+      "TokensEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/AuthTokens" } }
+      },
+      "UserEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/PublicUser" } }
+      },
+      "UserStatusEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": {
+            "allOf": [
+              { "$ref": "#/components/schemas/PublicUser" },
+              { "type": "object", "properties": { "pausedPrograms": { "type": "integer", "description": "ACTIVE programs paused by this ban, 0 for an unban or a no-op" } } }
+            ]
+          }
+        }
+      },
+      "UserListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/PublicUser" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "ProgramEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/Program" } }
+      },
+      "ProgramListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Program" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "ReportEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/Report" } }
+      },
+      "ReportListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Report" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "CommentEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/Comment" } }
+      },
+      "CommentListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Comment" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "RewardEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "payout": { "$ref": "#/components/schemas/PayoutRecord" },
+              "program": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "poolBalance": { "type": "integer" } } },
+              "researcher": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "walletBalance": { "type": "integer" }, "reputation": { "type": "integer" } } },
+              "report": { "type": "object", "properties": { "id": { "type": "string", "format": "uuid" }, "status": { "type": "string", "example": "REWARDED" } } }
+            }
+          }
+        }
+      },
+      "PayoutListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/PayoutListItem" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "CheckoutEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": {
+            "type": "object",
+            "properties": {
+              "payment": { "$ref": "#/components/schemas/Payment" },
+              "checkoutUrl": { "type": "string", "format": "uri" }
+            }
+          }
+        }
+      },
+      "PaymentEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/Payment" } }
+      },
+      "PaymentListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/Payment" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "AuditLogListEnvelope": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean", "example": true },
+          "message": { "type": "string" },
+          "data": { "type": "array", "items": { "$ref": "#/components/schemas/AuditLogEntry" } },
+          "meta": { "$ref": "#/components/schemas/PaginationMeta" }
+        }
+      },
+      "DashboardStatsEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/DashboardStats" } }
+      }
+    }
+  }
+}
