@@ -8,7 +8,9 @@ services:
     plan: free
     region: oregon
     branch: main
-    buildCommand: npm ci && npm run build
+    # --include=dev overrides NODE_ENV=production for this install: the build needs
+    # typescript and the @types/* packages, even though the running server doesn't.
+    buildCommand: npm ci --include=dev && npm run build
     # migrate deploy only applies pending migrations, so it's safe to run on every boot.
     startCommand: npx prisma migrate deploy && npm start
     healthCheckPath: /health
