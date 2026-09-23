@@ -1,7 +1,9 @@
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
+import swaggerUi from "swagger-ui-express";
 import { env } from "./config/env";
+import { openapiSpec } from "./config/openapi";
 import { errorHandler } from "./middlewares/errorHandler";
 import { notFound } from "./middlewares/notFound";
 import { globalLimiter } from "./middlewares/rateLimit";
@@ -14,7 +16,19 @@ export const app = express();
 // Behind Render's proxy, req.ip is the proxy unless the first hop is trusted.
 app.set("trust proxy", env.NODE_ENV === "production" ? 1 : false);
 
-app.use(helmet());
+// Swagger UI's page runs an inline bootstrap script and inline styles; every other
+// response here is JSON, so allowing that on this one route doesn't loosen anything else.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        "script-src": ["'self'", "'unsafe-inline'"],
+        "style-src": ["'self'", "'unsafe-inline'"],
+      },
+    },
+  }),
+);
 app.use(cors({ origin: env.CORS_ORIGINS }));
 
 // Stripe signs the exact bytes it sends, so this path must stay unparsed. It has to come
@@ -26,6 +40,8 @@ app.use(rejectNullBytes);
 app.get("/health", (_req, res) => {
   res.json({ status: "ok" });
 });
+
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(openapiSpec));
 
 app.use("/api/v1", globalLimiter, apiRouter);
 

@@ -7,8 +7,8 @@
     "contact": { "name": "API support" }
   },
   "servers": [
-    { "url": "http://localhost:5000/api/v1", "description": "Local development" },
-    { "url": "https://REPLACE-WITH-RENDER-URL.onrender.com/api/v1", "description": "Production" }
+    { "url": "/api/v1", "description": "This server (works on /docs wherever it's hosted, local or deployed)" },
+    { "url": "http://localhost:5000/api/v1", "description": "Local development" }
   ],
   "tags": [
     { "name": "Auth", "description": "Registration, login, and token lifecycle" },

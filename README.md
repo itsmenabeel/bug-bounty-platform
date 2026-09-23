@@ -40,9 +40,10 @@ request re-reads both.
 
 ## API documentation
 
-- **OpenAPI 3.1 spec:** [`docs/openapi.json`](docs/openapi.json). Open it in
-  [Swagger Editor](https://editor.swagger.io) or `npx @redocly/cli preview-docs docs/openapi.json`
-  for an interactive reference of all 34 endpoints, request bodies, and error codes.
+- **Live Swagger UI:** `/docs` on any running instance (`http://localhost:5000/docs` locally),
+  serving [`docs/openapi.json`](docs/openapi.json) with "Try it out" wired to that same
+  instance. Also viewable outside the app in [Swagger Editor](https://editor.swagger.io) or
+  `npx @redocly/cli preview-docs docs/openapi.json`.
 - **Postman collection:** [`docs/postman_collection.json`](docs/postman_collection.json), with
   [`docs/postman_environment.json`](docs/postman_environment.json). Import both, select the
   environment, and run folders top to bottom for a guided walkthrough: register, create and
