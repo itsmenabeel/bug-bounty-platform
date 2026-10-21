@@ -27,6 +27,11 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET: z.string().min(1),
   PAYMENT_SUCCESS_URL: z.url(),
   PAYMENT_CANCEL_URL: z.url(),
+  // Shared with the frontend server. Empty turns the trusted client-IP header off.
+  BFF_SHARED_SECRET: z
+    .string()
+    .optional()
+    .refine((value) => !value || value.length >= 32, "BFF_SHARED_SECRET needs 32+ characters"),
 });
 
 const parsed = envSchema.safeParse(process.env);

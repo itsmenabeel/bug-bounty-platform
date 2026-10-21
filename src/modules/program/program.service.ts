@@ -7,6 +7,7 @@ import { AppError } from "../../shared/errors/AppError";
 import { writeAudit } from "../../shared/utils/audit";
 import { cached, invalidate } from "../../shared/utils/cache";
 import { applyPagination, buildMeta } from "../../shared/utils/pagination";
+import type { ListPublicProgramsQuery } from "../public/public.validation";
 import { programSelect } from "./program.select";
 import type {
   CreateProgramInput,
@@ -46,6 +47,24 @@ export async function listPrograms(actor: Actor, query: ListProgramsQuery) {
   );
   return { ...value, cache: status };
 }
+
+// Visitors without an account see what a researcher sees: ACTIVE programs only.
+// The empty id never matches an ownerId.
+const PUBLIC_ACTOR: Actor = { id: "", role: ROLES.RESEARCHER };
+
+export async function listPublicPrograms(query: ListPublicProgramsQuery) {
+  const fullQuery: ListProgramsQuery = { ...query, mine: false };
+  // Same scope and key shape as a researcher's list, so both read one cache entry.
+  const { value, status } = await cached(
+    PROGRAMS_CACHE_NAMESPACE,
+    { scope: "public", query: fullQuery },
+    PROGRAMS_LIST_TTL_SECONDS,
+    () => queryPrograms(PUBLIC_ACTOR, fullQuery),
+  );
+  return { ...value, cache: status };
+}
+
+export const getPublicProgram = (id: string) => getProgram(id, PUBLIC_ACTOR);
 
 async function queryPrograms(actor: Actor, query: ListProgramsQuery) {
   const and: Prisma.ProgramWhereInput[] = [{ deletedAt: null }];

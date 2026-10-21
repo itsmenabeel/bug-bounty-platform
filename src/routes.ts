@@ -5,6 +5,7 @@ import { authRoutes } from "./modules/auth/auth.routes";
 import { paymentRoutes } from "./modules/payment/payment.routes";
 import { payoutRoutes } from "./modules/payout/payout.routes";
 import { programRoutes } from "./modules/program/program.routes";
+import { publicRoutes } from "./modules/public/public.routes";
 import { reportRoutes } from "./modules/report/report.routes";
 import { userRoutes } from "./modules/user/user.routes";
 
@@ -17,3 +18,4 @@ apiRouter.use("/reports", reportRoutes);
 apiRouter.use("/admin", adminRoutes);
 apiRouter.use("/payouts", payoutRoutes);
 apiRouter.use("/payments", paymentRoutes);
+apiRouter.use("/public", publicRoutes);

@@ -4,6 +4,8 @@ A REST API for running bug bounty programs: researchers submit vulnerability rep
 owners fund a reward pool through Stripe, admins triage reports and issue payouts. Built with
 Node.js, Express, TypeScript, and PostgreSQL.
 
+Live API: `https://bug-bounty-platform-cuna.onrender.com` (Swagger UI at `/docs`).
+
 ## Stack
 
 - **Runtime:** Node.js 24, TypeScript (native compiler), Express 5
@@ -18,7 +20,7 @@ Node.js, Express, TypeScript, and PostgreSQL.
 
 Requests flow through routes, controllers, services, and Prisma, in that order. Each domain
 lives in its own module under `src/modules`: `auth`, `user`, `program`, `report`, `payout`,
-`payment`, `admin`. Shared code sits in `src/shared`; cross-cutting middleware sits in
+`payment`, `admin`, and `public` (read-only routes for signed-out visitors). Shared code sits in `src/shared`; cross-cutting middleware sits in
 `src/middlewares`.
 
 Every response uses the same envelope. Success:
@@ -78,6 +80,8 @@ below, then run `npm run dev`.
 | `GOOGLE_CLIENT_ID` | *(optional)* An OAuth 2.0 Web application client ID from Google Cloud Console. Leave empty to make `POST /auth/google` return 503 |
 | `REDIS_URL` | *(optional)* Upstash's `rediss://` string. Leave empty to fall back to in-memory caching, denylisting, and rate limiting |
 | `SEED_ADMIN_PASSWORD` | Password for the seeded admin account; set a real one before deploying |
+| `BFF_SHARED_SECRET` | *(optional)* A random value of 32+ characters, generated like the JWT secrets, that you also set on the frontend server. With it, the frontend sends each visitor's IP in `X-Client-IP` and the rate limits count visitors separately. Leave empty to key every limit on the caller's IP |
+| `SEED_API_URL` | *(optional)* API base URL for `npm run db:seed:activity`. Defaults to `http://localhost:5000/api/v1` |
 
 `PORT`, `CORS_ORIGINS`, `RATE_LIMIT_ENABLED`, `JWT_ACCESS_TTL`/`JWT_REFRESH_TTL`, and
 `BCRYPT_ROUNDS` have sane local defaults in `.env.example`.
@@ -90,6 +94,11 @@ npm run dev
 
 Check `http://localhost:5000/health` returns `{ "status": "ok" }`.
 
+For dashboards with real data, run `npm run db:seed:activity` while the API is up. The script
+signs in as the demo accounts and calls the API the way a person would: it creates five more
+programs, submits twelve reports, triages them, adds comments, and pays three of them. It
+writes no rows directly, and it exits early if it finds the demo activity already there.
+
 ## Seeded accounts
 
 `npm run db:seed` creates three accounts and one active program with four reward tiers:
@@ -100,13 +109,21 @@ Check `http://localhost:5000/health` returns `{ "status": "ok" }`.
 | `owner@bugbounty.dev` | `Demo@12345` | PROGRAM_OWNER |
 | `researcher@bugbounty.dev` | `Demo@12345` | RESEARCHER |
 
+`npm run db:seed:activity` registers three more:
+
+| Email | Password | Role |
+|---|---|---|
+| `northwind@bugbounty.dev` | `Demo@12345` | PROGRAM_OWNER |
+| `sam@bugbounty.dev` | `Demo@12345` | RESEARCHER |
+| `priya@bugbounty.dev` | `Demo@12345` | RESEARCHER |
+
 ## Testing
 
 ```bash
 npm test
 ```
 
-440 tests across 12 suites, run with Jest and `@swc/jest` (TypeScript's native compiler breaks
+463 tests across 13 suites, run with Jest and `@swc/jest` (TypeScript's native compiler breaks
 `ts-jest`, so `@swc/jest` compiles instead). Stripe calls are mocked, so no test reaches the
 real Stripe API.
 
@@ -128,10 +145,11 @@ TEST_DIRECT_URL=postgresql://USER:PASS@ep-yyyy.REGION.aws.neon.tech/DB?sslmode=r
 | `npm start` | Run the compiled build |
 | `npm test` | Run the Jest suite |
 | `npm run lint` / `npm run format` / `npm run check` | Biome lint, format, and both |
-| `npm run typecheck` | Type-check `src` and `tests` |
+| `npm run typecheck` | Type-check `src`, `tests`, and `scripts` |
 | `npm run db:migrate` | Apply migrations locally, creating one if the schema changed |
 | `npm run db:deploy` | Apply migrations in production, without generating new ones |
 | `npm run db:seed` | Seed demo accounts and a funded program |
+| `npm run db:seed:activity` | Add demo programs, reports, comments, and payouts through the running API |
 
 ## Deployment
 
@@ -145,8 +163,8 @@ Database is [Neon](https://neon.tech); the API itself runs as a Render web servi
    `DIRECT_URL` from local setup (a separate Neon branch for production is a good idea),
    `JWT_ACCESS_SECRET`/`JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `PAYMENT_SUCCESS_URL`/
    `PAYMENT_CANCEL_URL`, `CORS_ORIGINS` set to the real frontend origin, and
-   `SEED_ADMIN_PASSWORD` set to a real password. `REDIS_URL` and `GOOGLE_CLIENT_ID` stay
-   optional.
+   `SEED_ADMIN_PASSWORD` set to a real password. `REDIS_URL`, `GOOGLE_CLIENT_ID`, and
+   `BFF_SHARED_SECRET` stay optional.
 4. In the Stripe dashboard, add a webhook endpoint pointing at
    `https://<your-service>.onrender.com/api/v1/payments/webhook`, subscribed to
    `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
@@ -157,6 +175,9 @@ Database is [Neon](https://neon.tech); the API itself runs as a Render web servi
    the schema is always current; it's a no-op once there's nothing pending.
 6. Seed once, from the Render shell: `npm run db:seed`. It's safe to run again later — it
    upserts the demo users and only creates the demo program if it doesn't already exist.
+7. Optional: from your machine, run
+   `SEED_API_URL=https://<your-service>.onrender.com/api/v1 SEED_ADMIN_PASSWORD=<admin password> npm run db:seed:activity`
+   to fill the dashboards.
 
 The free Render plan spins the service down after inactivity, so a webhook that arrives while
 it's asleep can be missed by the time Render wakes back up. `POST /payments/{id}/verify`

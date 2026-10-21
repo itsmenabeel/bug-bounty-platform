@@ -7,6 +7,7 @@
     "includes": [
       "src/**",
       "tests/**",
+      "scripts/**",
       "prisma/**/*.ts",
       "*.json",
       "jest.config.js",

@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
+import type { Request } from "express";
+import { ipKeyGenerator } from "express-rate-limit";
 import jwt from "jsonwebtoken";
 import { env } from "../../src/config/env";
 import { AppError } from "../../src/shared/errors/AppError";
+import { clientKey } from "../../src/shared/utils/clientKey";
 import {
   signAccessToken,
   signRefreshToken,
@@ -95,5 +98,39 @@ describe("refresh token denylist (in-memory fallback)", () => {
   it("tracks tokens independently", async () => {
     expect(await claimToken(randomUUID(), inAnHour())).toBe(true);
     expect(await claimToken(randomUUID(), inAnHour())).toBe(true);
+  });
+});
+
+describe("clientKey", () => {
+  const secret = env.BFF_SHARED_SECRET as string;
+  const fakeRequest = (headers: Record<string, string>, ip = "198.51.100.1") =>
+    ({ ip, get: (name: string) => headers[name.toLowerCase()] }) as unknown as Request;
+
+  afterEach(() => {
+    env.BFF_SHARED_SECRET = secret;
+  });
+
+  it("uses the visitor IP when the secret matches", () => {
+    const req = fakeRequest({ "x-bff-secret": secret, "x-client-ip": "203.0.113.7" });
+    expect(clientKey(req)).toBe("203.0.113.7");
+  });
+
+  it("groups a visitor's IPv6 address by /56", () => {
+    const key = (ip: string) =>
+      clientKey(fakeRequest({ "x-bff-secret": secret, "x-client-ip": ip }));
+    expect(key("2001:db8:1:2::1")).toBe(ipKeyGenerator("2001:db8:1:2::1"));
+    expect(key("2001:db8:1:2::1")).toBe(key("2001:db8:1:3::9"));
+    expect(key("2001:db8:1:2::1")).not.toBe(key("2001:db8:2:2::1"));
+  });
+
+  it("falls back to req.ip for a wrong secret of a different length", () => {
+    const req = fakeRequest({ "x-bff-secret": "short", "x-client-ip": "203.0.113.7" });
+    expect(clientKey(req)).toBe("198.51.100.1");
+  });
+
+  it("falls back to req.ip when no secret is configured", () => {
+    env.BFF_SHARED_SECRET = undefined;
+    const req = fakeRequest({ "x-bff-secret": secret, "x-client-ip": "203.0.113.7" });
+    expect(clientKey(req)).toBe("198.51.100.1");
   });
 });

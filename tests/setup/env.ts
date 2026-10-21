@@ -25,4 +25,5 @@ Object.assign(process.env, {
   STRIPE_WEBHOOK_SECRET: "whsec_jest_dummy_secret",
   PAYMENT_SUCCESS_URL: "http://localhost:3000/payment/success",
   PAYMENT_CANCEL_URL: "http://localhost:3000/payment/cancel",
+  BFF_SHARED_SECRET: "jest-bff-secret-0123456789abcdef0123456789abcdef",
 });

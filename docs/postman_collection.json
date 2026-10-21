@@ -798,6 +798,150 @@
       ]
     },
     {
+      "name": "Public",
+      "description": "Read-only endpoints for signed-out visitors. No token.",
+      "item": [
+        {
+          "name": "List Public Programs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/public/programs?limit=10&sortBy=createdAt&order=desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "programs"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sortBy",
+                  "value": "createdAt"
+                },
+                {
+                  "key": "order",
+                  "value": "desc"
+                }
+              ]
+            },
+            "description": "ACTIVE programs only, in the same shape as List Programs.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.test('every program is ACTIVE', function () {",
+                  "  body.data.forEach((p) => pm.expect(p.status).to.eql('ACTIVE'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Public Program",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/public/programs/{{programId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "programs",
+                "{{programId}}"
+              ]
+            },
+            "description": "Returns 404 unless the program is ACTIVE.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.test('includes the owner name', function () {",
+                  "  pm.expect(body.data.owner.name).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Public Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/public/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "public",
+                "stats"
+              ]
+            },
+            "description": "Platform totals for the home page. Cached for 5 minutes. Money in cents.",
+            "auth": {
+              "type": "noauth"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "const body = pm.response.json();",
+                  "pm.test('envelope has success:true', function () {",
+                  "  pm.expect(body.success).to.eql(true);",
+                  "});",
+                  "pm.test('has generatedAt', function () {",
+                  "  pm.expect(Date.parse(body.data.generatedAt)).to.not.be.NaN;",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Payments",
       "description": "Stripe checkout and pool funding. The webhook is called by Stripe, not from Postman; use Verify Payment or the Stripe CLI (`stripe trigger checkout.session.completed`) instead.",
       "item": [

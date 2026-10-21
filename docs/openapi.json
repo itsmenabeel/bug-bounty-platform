@@ -18,7 +18,8 @@
     { "name": "Comments", "description": "Discussion threads on a report" },
     { "name": "Payouts", "description": "Rewards paid to researchers" },
     { "name": "Payments", "description": "Stripe checkout and pool funding" },
-    { "name": "Admin", "description": "User management, audit log, and platform stats" }
+    { "name": "Admin", "description": "User management, audit log, and platform stats" },
+    { "name": "Public", "description": "Read-only data for signed-out visitors. No token needed" }
   ],
   "security": [{ "bearerAuth": [] }],
   "paths": {
@@ -638,6 +639,57 @@
           "403": { "$ref": "#/components/responses/Forbidden" }
         }
       }
+    },
+    "/public/programs": {
+      "get": {
+        "tags": ["Public"],
+        "summary": "List ACTIVE programs for visitors",
+        "description": "Returns what a researcher sees: ACTIVE programs only, in the same shape as `GET /programs`. The API drops `status` and `mine` if you send them. Shares the 60-second cache with the researcher list.",
+        "security": [],
+        "parameters": [
+          { "$ref": "#/components/parameters/Page" },
+          { "$ref": "#/components/parameters/Limit" },
+          { "name": "sortBy", "in": "query", "schema": { "type": "string", "enum": ["createdAt", "title", "poolBalance"], "default": "createdAt" } },
+          { "$ref": "#/components/parameters/Order" },
+          { "name": "search", "in": "query", "schema": { "type": "string", "maxLength": 100 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Programs retrieved",
+            "headers": { "X-Cache": { "schema": { "type": "string", "enum": ["HIT", "MISS", "BYPASS"] } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramListEnvelope" } } }
+          },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/public/programs/{id}": {
+      "get": {
+        "tags": ["Public"],
+        "summary": "Get an ACTIVE program for visitors",
+        "description": "DRAFT, PAUSED, CLOSED, and deleted programs return 404.",
+        "security": [],
+        "parameters": [{ "$ref": "#/components/parameters/IdParam" }],
+        "responses": {
+          "200": { "description": "Program retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProgramEnvelope" } } } },
+          "404": { "$ref": "#/components/responses/NotFound" },
+          "422": { "$ref": "#/components/responses/ValidationError" },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
+    },
+    "/public/stats": {
+      "get": {
+        "tags": ["Public"],
+        "summary": "Platform totals for the home page",
+        "description": "Cached for 5 minutes. Money is in cents. `generatedAt` tells you how old the numbers are.",
+        "security": [],
+        "responses": {
+          "200": { "description": "Platform statistics retrieved", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PublicStatsEnvelope" } } } },
+          "429": { "$ref": "#/components/responses/TooManyRequests" }
+        }
+      }
     }
   },
   "components": {
@@ -655,7 +707,7 @@
       "Forbidden": { "description": "Signed in, but the role or ownership does not permit this", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "NotFound": { "description": "No such resource, or it is hidden from this caller", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
       "ValidationError": { "description": "The body, params, or query failed validation", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-      "TooManyRequests": { "description": "Rate limit exceeded", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+      "TooManyRequests": { "description": "Rate limit exceeded. Limits count per client IP. A frontend server calling on behalf of its visitors can send the visitor's IP in `X-Client-IP` along with the shared secret in `X-BFF-Secret`; the API then counts that visitor separately. Without a matching secret the API ignores `X-Client-IP`.", "headers": { "Retry-After": { "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
     },
     "schemas": {
       "Error": {
@@ -724,6 +776,7 @@
         "properties": {
           "id": { "type": "string", "format": "uuid" },
           "ownerId": { "type": "string", "format": "uuid" },
+          "owner": { "type": "object", "properties": { "name": { "type": "string" } } },
           "title": { "type": "string" },
           "description": { "type": "string" },
           "scope": { "$ref": "#/components/schemas/ProgramScope" },
@@ -1070,6 +1123,22 @@
           "data": { "type": "array", "items": { "$ref": "#/components/schemas/Program" } },
           "meta": { "$ref": "#/components/schemas/PaginationMeta" }
         }
+      },
+      "PublicStats": {
+        "type": "object",
+        "properties": {
+          "activePrograms": { "type": "integer" },
+          "availableInPools": { "type": "integer", "description": "Cents, summed over ACTIVE programs" },
+          "totalPaidOut": { "type": "integer", "description": "Cents" },
+          "payoutCount": { "type": "integer" },
+          "reportsResolved": { "type": "integer", "description": "Reports in ACCEPTED, REWARDED, REJECTED, or DUPLICATE" },
+          "researchers": { "type": "integer", "description": "Active researcher accounts" },
+          "generatedAt": { "type": "string", "format": "date-time", "description": "When the API computed these numbers" }
+        }
+      },
+      "PublicStatsEnvelope": {
+        "type": "object",
+        "properties": { "success": { "type": "boolean", "example": true }, "message": { "type": "string" }, "data": { "$ref": "#/components/schemas/PublicStats" } }
       },
       "ReportEnvelope": {
         "type": "object",

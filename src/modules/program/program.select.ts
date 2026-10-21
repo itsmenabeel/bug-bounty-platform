@@ -1,6 +1,7 @@
 export const programSelect = {
   id: true,
   ownerId: true,
+  owner: { select: { name: true } },
   title: true,
   description: true,
   scope: true,

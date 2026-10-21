@@ -1,10 +1,11 @@
 import type { RequestHandler } from "express";
-import rateLimit, { ipKeyGenerator, type Options } from "express-rate-limit";
+import rateLimit, { type Options } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { env } from "../config/env";
 import { redis } from "../config/redis";
 import { AUTH_LIMIT, GLOBAL_LIMIT, REPORT_SUBMIT_LIMIT } from "../shared/constants/rateLimit";
 import { AppError } from "../shared/errors/AppError";
+import { clientKey } from "../shared/utils/clientKey";
 
 type Tier = { windowMs: number; limit: number };
 
@@ -26,6 +27,7 @@ function createLimiter(name: string, tier: Tier, extra: Partial<Options> = {}): 
       standardHeaders: true,
       legacyHeaders: false,
       passOnStoreError: true,
+      keyGenerator: clientKey,
       handler: (_req, _res, done) =>
         done(new AppError(429, "Too many requests, please try again later")),
       ...(client && {
@@ -48,5 +50,5 @@ export const globalLimiter = createLimiter("global", GLOBAL_LIMIT, {
 export const authLimiter = createLimiter("auth", AUTH_LIMIT);
 
 export const reportSubmitLimiter = createLimiter("report-submit", REPORT_SUBMIT_LIMIT, {
-  keyGenerator: (req) => req.user?.id ?? ipKeyGenerator(req.ip ?? ""),
+  keyGenerator: (req) => req.user?.id ?? clientKey(req),
 });

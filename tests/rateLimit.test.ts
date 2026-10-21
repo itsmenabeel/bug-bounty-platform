@@ -75,3 +75,34 @@ describe("rate limiting", () => {
     expect(res.headers["ratelimit-limit"]).toBeUndefined();
   });
 });
+
+// These rely on the first test above having spent the default IP's auth budget.
+describe("visitor IP from the frontend server", () => {
+  const secret = process.env.BFF_SHARED_SECRET as string;
+  const login = (headers: Record<string, string>) =>
+    api()
+      .post(`${API}/auth/login`)
+      .set(headers)
+      .send({ email: "nobody@example.com", password: "wrong-password" });
+
+  it("keys the limit on X-Client-IP when the secret matches", async () => {
+    expectError(await login({}), 429);
+    expectError(await login({ "X-BFF-Secret": secret, "X-Client-IP": "203.0.113.7" }), 401);
+  });
+
+  it("ignores X-Client-IP without the right secret", async () => {
+    expectError(await login({ "X-Client-IP": "203.0.113.8" }), 429);
+    expectError(await login({ "X-BFF-Secret": "wrong", "X-Client-IP": "203.0.113.8" }), 429);
+  });
+
+  it("ignores a malformed X-Client-IP", async () => {
+    expectError(await login({ "X-BFF-Secret": secret, "X-Client-IP": "not-an-ip" }), 429);
+  });
+
+  it("gives each visitor a separate budget", async () => {
+    const visitor = { "X-BFF-Secret": secret, "X-Client-IP": "203.0.113.20" };
+    for (let i = 0; i < AUTH_LIMIT.limit; i++) expectError(await login(visitor), 401);
+    expectError(await login(visitor), 429);
+    expectError(await login({ ...visitor, "X-Client-IP": "203.0.113.21" }), 401);
+  });
+});
